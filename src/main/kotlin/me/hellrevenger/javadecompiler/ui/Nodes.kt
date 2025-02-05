@@ -25,10 +25,6 @@ abstract class Node(var model: DefaultTreeModel? = null, @get:JvmName("getParent
 }
 
 class ClassNode(model: DefaultTreeModel, val name: String) : Node(model) {
-    init {
-
-    }
-
     override fun getChildren(): List<Node> {
         return emptyList()
     }
@@ -38,7 +34,7 @@ class ClassNode(model: DefaultTreeModel, val name: String) : Node(model) {
     override fun toString() = name
 }
 
-open class PackageNode(model: DefaultTreeModel, val name: String, parent: JarNode? = null) : Node(model, parent) {
+open class PackageNode(model: DefaultTreeModel, val name: String, parent: Node? = null) : Node(model, parent) {
     val packages = hashMapOf<String, PackageNode>()
     val classes = hashMapOf<String, ClassNode>()
     val files = hashMapOf<String, Node>()
@@ -81,7 +77,7 @@ open class PackageNode(model: DefaultTreeModel, val name: String, parent: JarNod
     override fun getAllowsChildren() = true
 }
 
-class JarNode(model: DefaultTreeModel, val file: File) : PackageNode(model, "") {
+class JarNode(parent: Jars, model: DefaultTreeModel, val file: File) : PackageNode(model, "", parent) {
     init {
         val jar = JarFile(file)
         jar.entries().asIterator().forEach {
@@ -105,7 +101,7 @@ class Jars : Node() {
     override fun getChildren() = models.values.toList()
 
     fun addJar(file: File) {
-        val jar = JarNode(model!!, file)
+        val jar = JarNode(this, model!!, file)
         models[file.absolutePath] = jar
         model!!.nodeChanged(jar)
     }
