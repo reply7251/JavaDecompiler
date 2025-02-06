@@ -1,40 +1,25 @@
 package me.hellrevenger.javadecompiler.ui
 
 import java.io.File
-import java.util.*
 import java.util.jar.JarFile
-import javax.swing.tree.DefaultTreeModel
-import javax.swing.tree.TreeNode
+import javax.swing.tree.DefaultMutableTreeNode
+import javax.swing.tree.MutableTreeNode
 
 fun <K: Comparable<K>,V> Map<K,V>.sortByKey() = this.toList().sortedBy { it.first }.map { it.second }
 
-abstract class Node(var model: DefaultTreeModel? = null, @get:JvmName("getParentKt") val parent: Node? = null) : TreeNode {
+abstract class Node(val node: MutableTreeNode) {
     abstract fun getChildren(): List<Node>
-
-    override fun getChildAt(childIndex: Int) = getChildren()[childIndex]
-
-    override fun getChildCount() = getChildren().size
-
-    override fun getParent() = parent
-
-    override fun getIndex(node: TreeNode?) = getChildren().indexOf(node)
-
-    override fun isLeaf() = childCount == 0
-
-    override fun children() = Collections.enumeration(getChildren())
 }
 
-class ClassNode(model: DefaultTreeModel, val name: String) : Node(model) {
+class ClassNode(val name: String, node: MutableTreeNode) : Node(node) {
     override fun getChildren(): List<Node> {
         return emptyList()
     }
 
-    override fun getAllowsChildren() = false
-
     override fun toString() = name
 }
 
-open class PackageNode(model: DefaultTreeModel, val name: String, parent: Node? = null) : Node(model, parent) {
+open class PackageNode(val name: String, node: MutableTreeNode) : Node(node) {
     val packages = hashMapOf<String, PackageNode>()
     val classes = hashMapOf<String, ClassNode>()
     val files = hashMapOf<String, Node>()
@@ -58,8 +43,14 @@ open class PackageNode(model: DefaultTreeModel, val name: String, parent: Node? 
                 return (it as PackageNode).getPackage(path.substring(delimiter+1))
             }
         }
-        val thePackage = PackageNode(model!!, path, this as? JarNode ?: parent as? JarNode)
+        packages[path]?.let {
+            return it
+        }
+        val packageNode = DefaultMutableTreeNode()
+        val thePackage = PackageNode(path, packageNode)
+        packageNode.userObject = thePackage
         packages[path] = thePackage
+        node.insert(packageNode, getChildren().indexOf(thePackage))
         return thePackage
     }
 
@@ -68,16 +59,21 @@ open class PackageNode(model: DefaultTreeModel, val name: String, parent: Node? 
         if(delimiter != -1) {
             return getPackage(path.substring(0, delimiter)).getClass(path.substring(delimiter+1))
         }
-        val theClass = ClassNode(model!!, path.split(".")[0])
+        classes[path]?.let {
+            return it
+        }
+        val classNode = DefaultMutableTreeNode()
+        val theClass = ClassNode(path.split(".")[0], classNode)
+        classNode.userObject = theClass
         classes[path] = theClass
+        node.insert(classNode, getChildren().indexOf(theClass))
         return theClass
     }
 
     override fun toString() = name
-    override fun getAllowsChildren() = true
 }
 
-class JarNode(parent: Jars, model: DefaultTreeModel, val file: File) : PackageNode(model, "", parent) {
+class JarNode(val file: File, node: MutableTreeNode) : PackageNode("", node) {
     init {
         val jar = JarFile(file)
         jar.entries().asIterator().forEach {
@@ -96,17 +92,18 @@ class JarNode(parent: Jars, model: DefaultTreeModel, val file: File) : PackageNo
     override fun toString() = file.absolutePath
 }
 
-class Jars : Node() {
+class Jars : DefaultMutableTreeNode() {
     val models = mutableMapOf<String, Node>()
-    override fun getChildren() = models.values.toList()
+    fun getChildren() = models.values.toList()
 
     fun addJar(file: File) {
-        val jar = JarNode(this, model!!, file)
+        val jarNode = DefaultMutableTreeNode()
+        val jar = JarNode(file, jarNode)
+        jarNode.userObject = jar
         models[file.absolutePath] = jar
-        model!!.nodeChanged(jar)
-    }
 
-    override fun getAllowsChildren() = true
+        insert(jarNode, childCount)
+    }
 
     override fun toString(): String {
         return ""

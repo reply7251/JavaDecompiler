@@ -4,23 +4,24 @@ import com.strobel.assembler.metadata.JarTypeLoader
 import com.strobel.assembler.metadata.MetadataSystem
 import com.strobel.decompiler.DecompilationOptions
 import com.strobel.decompiler.DecompilerSettings
-import com.strobel.decompiler.PlainTextOutput
+import me.hellrevenger.javadecompiler.decompiler.LinkableTextOutput
 import java.awt.Color
 import java.io.File
 import java.util.jar.JarFile
 import javax.swing.BorderFactory
+import javax.swing.JScrollPane
+import javax.swing.JTextPane
 import javax.swing.JTree
 import javax.swing.tree.DefaultTreeModel
 
 val SUPPORT_FILES = arrayOf("jar", "class")
 
-class FileTree(val settings: DecompilerSettings) : JTree() {
+class FileTree(val settings: DecompilerSettings, val souceViewer: SouceViewer) : JTree() {
     val jars: Jars
     init {
         border = BorderFactory.createLineBorder(Color.GRAY)
         jars = Jars()
         model = DefaultTreeModel(jars)
-        jars.model = model as DefaultTreeModel
 
         addFile(File("build/libs/JavaDecompiler-0.1.jar"))
     }
@@ -45,9 +46,15 @@ class FileTree(val settings: DecompilerSettings) : JTree() {
                     } else return@forEachIndexed // wtf
                     val lookup = system.lookupType(path) ?: return@forEachIndexed
                     val resolve = lookup.resolve() ?: return@forEachIndexed
-                    val output = PlainTextOutput()
+                    val pane = JTextPane()
+                    val output = LinkableTextOutput(pane)
                     settings.language.decompileType(resolve, output, DecompilationOptions())
-                    println(output.toString())
+                    output.flush()
+                    val delimiter = path.lastIndexOf("/")
+                    val className = if(delimiter == -1) path else path.substring(delimiter + 1)
+                    val tab = JScrollPane(pane)
+                    souceViewer.addTab(className, tab)
+                    souceViewer.selectedComponent = tab
                 }
             }
 
