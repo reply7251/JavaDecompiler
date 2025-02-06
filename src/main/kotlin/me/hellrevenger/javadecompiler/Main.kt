@@ -5,8 +5,7 @@ import javax.swing.SwingUtilities
 
 fun main() {
     SwingUtilities.invokeLater {
-        val window = MainWindow()
-        window.pack()
-        window.isVisible = true
+        MainWindow.pack()
+        MainWindow.isVisible = true
     }
 }

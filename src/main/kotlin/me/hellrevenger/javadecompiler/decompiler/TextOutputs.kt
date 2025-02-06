@@ -2,14 +2,29 @@ package me.hellrevenger.javadecompiler.decompiler
 
 import com.strobel.assembler.metadata.*
 import com.strobel.decompiler.PlainTextOutput
+import me.hellrevenger.javadecompiler.ui.KeyBoard
+import me.hellrevenger.javadecompiler.ui.KeyEventDispatcher
+import me.hellrevenger.javadecompiler.ui.MainWindow
+import java.awt.event.KeyEvent
 import javax.swing.JTextPane
 import javax.swing.event.HyperlinkEvent
+import javax.swing.text.AbstractDocument.AbstractElement
+import javax.swing.text.DefaultStyledDocument
+import javax.swing.text.SimpleAttributeSet
+import javax.swing.text.StyleConstants
 import javax.swing.text.html.HTMLEditorKit
 import javax.swing.text.html.StyleSheet
 
-class LinkableTextOutput(val pane: JTextPane) : PlainTextOutput() {
+class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainTextOutput(), KeyEventDispatcher {
     companion object {
-        val instances = mutableSetOf<LinkableTextOutput>()
+        val instances = mutableMapOf<String, LinkableTextOutput>()
+
+        val underline = SimpleAttributeSet()
+        val noUnderline = SimpleAttributeSet()
+        init {
+            StyleConstants.setUnderline(underline, true)
+            StyleConstants.setUnderline(noUnderline, false)
+        }
     }
 
     val links = hashMapOf<String, Pair<Int, Int>>()
@@ -21,9 +36,15 @@ class LinkableTextOutput(val pane: JTextPane) : PlainTextOutput() {
 
     var counter = hashMapOf<String, Int>()
 
+    var focusElement: AbstractElement? = null
+        set(value) {
+            changeFocus(field, value)
+            field = value
+        }
+
 
     init {
-        instances.add(this)
+        instances[className] = this
 
         pane.isEditable = false
 
@@ -41,12 +62,31 @@ class LinkableTextOutput(val pane: JTextPane) : PlainTextOutput() {
         pane.document = html.createDefaultDocument()
 
         pane.addHyperlinkListener {
-            if(it.eventType == HyperlinkEvent.EventType.ACTIVATED) {
-                links[it.description]?.let {
-                    pane.select(it.first, it.second)
+            if(KeyBoard.isModifierPressed(KeyEvent.CTRL_DOWN_MASK)) {
+                if(it.eventType == HyperlinkEvent.EventType.ACTIVATED) {
+                    links[it.description]?.let {
+                        pane.select(it.first, it.second)
+                        return@addHyperlinkListener
+                    }
+                    val delimiter = it.description.indexOf(".")
+                    val className = if(delimiter == -1) it.description else it.description.substring(0, delimiter)
+                    MainWindow.fileTree.openClass(className)?.let { pane ->
+                        instances[className]?.links?.get(it.description)?.let {
+                            println("try select")
+                            pane.select(it.first, it.second)
+                            return@addHyperlinkListener
+                        }
+                    }
                 }
             }
+            if(it.eventType == HyperlinkEvent.EventType.ENTERED) {
+                focusElement = it.sourceElement as? AbstractElement
+            } else if(it.eventType == HyperlinkEvent.EventType.EXITED) {
+                focusElement = null
+            }
         }
+
+        KeyBoard.registerKeyEvent(this)
     }
 
     override fun write(ch: Char) {
@@ -94,21 +134,25 @@ class LinkableTextOutput(val pane: JTextPane) : PlainTextOutput() {
     override fun writeDefinition(text: String, definition: Any, isLocal: Boolean) {
         val className = definition::class.java.simpleName
         var processed = false
+        val start = currentTextIndex + 1
+        val end = currentTextIndex + text.length + 1
 
         (definition as? MethodDefinition)?.let {
             val def = "${it.fullName} ${it.signature}"
-            links[def] = currentTextIndex + 1 to currentTextIndex + text.length + 1
-
+            links[def] = start to end
             processed = true
         }
         (definition as? FieldDefinition)?.let {
             val def = it.fullName
-            //span("def", "/* $def */ ")
-            links[def] = currentTextIndex + 1 to currentTextIndex + text.length + 1
+            links[def] = start to end
             processed = true
         }
         (definition as? ParameterDefinition)?.let {
-            span("def", "/* param */ ")
+            processed = true
+        }
+        (definition as? TypeDefinition)?.let {
+            val def = it.fullName.replace(".", "/")
+            links[def] = start to end
             processed = true
         }
         if(!processed) {
@@ -121,16 +165,21 @@ class LinkableTextOutput(val pane: JTextPane) : PlainTextOutput() {
         val className = reference::class.java.simpleName
         var processed = false
         var hasHref = false
-        (reference as? MethodDefinition)?.let {
+        (reference as? MethodReference)?.let {
             val ref = "${it.fullName} ${it.signature}"
             href(ref)
             processed = true
             hasHref = true
         }
-        if(reference is PackageReference || className == "UnresolvedGenericType")
+        if(reference is PackageReference || reference is GenericParameter || className == "UnresolvedGenericType")
             processed = true
         (reference as? FieldReference)?.let {
             href(it.declaringType.toString().replace(".", "/") + "." + text)
+            processed = true
+            hasHref = true
+        }
+        (reference as? TypeReference)?.let {
+            href(it.fullName.replace(".", "/"))
             processed = true
             hasHref = true
         }
@@ -140,6 +189,12 @@ class LinkableTextOutput(val pane: JTextPane) : PlainTextOutput() {
         super.writeReference(text, reference)
 
         if(hasHref) endHref()
+    }
+
+    override fun writeKeyword(text: String?) {
+        span("keyword")
+        super.writeKeyword(text)
+        endSpan()
     }
 
     fun href(target: String) = append("<a href=\"$target\">")
@@ -168,11 +223,26 @@ class LinkableTextOutput(val pane: JTextPane) : PlainTextOutput() {
 
     fun flush() {
         pane.text = "<pre>$stringBuilder</pre>"
+    }
 
-        println(stringBuilder)
-        println(currentTextIndex)
-        counter.forEach { t, u ->
-            println("$t: $u")
+    fun changeFocus(old: AbstractElement?, new: AbstractElement?) {
+        old?.let {
+            (it.document as? DefaultStyledDocument)?.setCharacterAttributes(it.startOffset, it.endOffset - it.startOffset, noUnderline, false)
         }
+        new?.let {
+            if(KeyBoard.isModifierPressed(KeyEvent.CTRL_DOWN_MASK)) {
+                (it.document as? DefaultStyledDocument)?.setCharacterAttributes(it.startOffset, it.endOffset - it.startOffset,
+                    underline, false)
+            }
+        }
+    }
+
+    fun onClose() {
+        instances.remove(className)
+        KeyBoard.unregisterKeyEvent(this)
+    }
+
+    override fun onKey(event: KeyEvent) {
+        changeFocus(focusElement, focusElement)
     }
 }
