@@ -6,11 +6,20 @@ import com.strobel.decompiler.DecompilationOptions
 import com.strobel.decompiler.DecompilerSettings
 import me.hellrevenger.javadecompiler.decompiler.LinkableTextOutput
 import java.awt.Color
+import java.awt.datatransfer.DataFlavor
+import java.awt.dnd.DnDConstants
+import java.awt.dnd.DropTarget
+import java.awt.dnd.DropTargetDropEvent
+import java.awt.event.ActionEvent
+import java.awt.event.MouseEvent
+import java.awt.event.MouseListener
+import java.awt.event.MouseMotionListener
 import java.io.File
 import java.util.jar.JarFile
 import javax.swing.*
 import javax.swing.event.TreeExpansionEvent
 import javax.swing.event.TreeExpansionListener
+import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
 import javax.swing.tree.MutableTreeNode
 
@@ -18,69 +27,64 @@ val SUPPORT_FILES = arrayOf("jar", "class")
 
 class FileTree : JTree() {
     val jars: Jars
-    val systems = mutableSetOf<MetadataSystem>()
+    val systems = hashMapOf<String, MetadataSystem>()
 
     init {
         border = BorderFactory.createLineBorder(Color.GRAY)
         jars = Jars()
         model = DefaultTreeModel(jars)
 
+        dropTarget = object : DropTarget(){
+            override fun drop(event: DropTargetDropEvent) {
+                println("drop")
+                try {
+                    event.acceptDrop(DnDConstants.ACTION_COPY)
+                    val files = event.transferable.getTransferData(DataFlavor.javaFileListFlavor) as List<File>
+
+                    files.forEach { file -> addFile(file) }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    event.rejectDrop()
+                }
+            }
+        }
+        addTreeSelectionListener { event ->
+            event.paths.forEachIndexed { i, it ->
+                if(!event.isAddedPath(i)) return@forEachIndexed
+
+                val path = if(it.pathCount > 2) {
+                    val iterator = it.path.iterator()
+                    iterator.next()
+                    iterator.next()
+                    iterator.asSequence().joinToString("/")
+                } else return@forEachIndexed // wtf
+                openClass(path)
+            }
+        }
+        addTreeExpansionListener(ExpansionListener())
+        addMouseListener(FileMouseListener(this))
+        addMouseMotionListener(ToolTipListener(this))
+
         addFile(File("build/libs/JavaDecompiler-0.1.jar"))
     }
-
 
     fun addFile(file: File) {
         if(!SUPPORT_FILES.contains(file.extension.lowercase()) || !file.exists()) return
         if(file.extension.lowercase() == "jar") {
-            jars.addJar(file)
+            if(!jars.addJar(file)) return
 
             val system = MetadataSystem(JarTypeLoader(JarFile(file)))
-            systems.add(system)
-            this.addTreeSelectionListener { event ->
-                event.paths.forEachIndexed { i, it ->
-                    if(!event.isAddedPath(i)) return@forEachIndexed
-
-                    val path = if(it.pathCount > 2) {
-                        val iterator = it.path.iterator()
-                        iterator.next()
-                        iterator.next()
-                        iterator.asSequence().joinToString("/")
-                    } else return@forEachIndexed // wtf
-                    openClass(system, path)
-                }
-            }
-            addTreeExpansionListener(ExpansionListener())
+            systems[file.absolutePath] = system
         }
         expandRow(0)
     }
 
     fun openClass(path: String): JTextPane? {
         systems.forEach {
-            val pane = openClass(it, path)
+            val pane = MainWindow.sourceViewer.openClass(it.key, it.value, path)
             if(pane != null) return pane
         }
         return null
-    }
-
-    fun openClass(system: MetadataSystem, path: String): JTextPane? {
-        val delimiter = path.lastIndexOf("/")
-        val className = if(delimiter == -1) path else path.substring(delimiter + 1)
-
-        val i = MainWindow.sourceViewer.indexOfTab(className)
-        if(i != -1) return (MainWindow.sourceViewer.getTabComponentAt(i) as JScrollPane).viewport.view as JTextPane
-
-        println("opening: $path")
-        val lookup = system.lookupType(path) ?: return null
-        val resolve = lookup.resolve() ?: return null
-        val pane = JTextPane()
-        val output = LinkableTextOutput(path, pane)
-        MainWindow.settings.language.decompileType(resolve, output, DecompilationOptions())
-        output.flush()
-        val tabContent = JScrollPane(pane)
-        MainWindow.sourceViewer.addTab(path, tabContent)
-        MainWindow.sourceViewer.selectedComponent = tabContent
-
-        return pane
     }
 }
 
@@ -93,7 +97,57 @@ class ExpansionListener : TreeExpansionListener {
         }
     }
 
-    override fun treeCollapsed(event: TreeExpansionEvent){
+    override fun treeCollapsed(event: TreeExpansionEvent){ }
+}
 
+class ToolTipListener(val tree: FileTree) : MouseMotionListener {
+    override fun mouseDragged(e: MouseEvent?) { }
+
+    override fun mouseMoved(e: MouseEvent) {
+        val row = tree.getRowForLocation(e.x, e.y)
+        if(row == -1) return
+        val path = tree.getPathForRow(row)
+        if(path.pathCount == 2) {
+            tree.toolTipText = ((path.lastPathComponent as? DefaultMutableTreeNode)?.userObject as? JarNode)?.getPath()
+        } else {
+            tree.toolTipText = null
+        }
+    }
+}
+
+class FileMouseListener(val tree: FileTree) : MouseListener {
+    override fun mouseClicked(e: MouseEvent) {
+        if(e.button != 3) return
+        val row = tree.getRowForLocation(e.x, e.y)
+        if(row == -1) return
+        val path = tree.getPathForRow(row)
+        if(path.pathCount == 2) {
+            (path.lastPathComponent as? DefaultMutableTreeNode)?.let {
+                val menu = JPopupMenu()
+                menu.invoker = tree
+                menu.setLocation(e.xOnScreen, e.yOnScreen)
+                menu.add("").action = object : AbstractAction("close") {
+                    override fun actionPerformed(e: ActionEvent) {
+                        val abso = (it.userObject as? JarNode)?.getPath() ?: return
+                        MainWindow.sourceViewer.onFileRemoved(abso)
+                        tree.jars.removeJar(abso)
+                        (tree.model as? DefaultTreeModel)?.reload()
+                    }
+                }
+                menu.isVisible = true
+            }
+        }
+    }
+
+    override fun mousePressed(e: MouseEvent) {
+    }
+
+    override fun mouseReleased(e: MouseEvent?) {
+    }
+
+    override fun mouseEntered(e: MouseEvent?) {
+    }
+
+    override fun mouseExited(e: MouseEvent?) {
     }
 }

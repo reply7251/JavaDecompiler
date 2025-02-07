@@ -89,20 +89,29 @@ class JarNode(val file: File, node: MutableTreeNode) : PackageNode("", node) {
         }
     }
 
-    override fun toString() = file.absolutePath
+    fun getPath() = file.absolutePath
+
+    override fun toString() = file.name
 }
 
 class Jars : DefaultMutableTreeNode() {
     val models = mutableMapOf<String, Node>()
     fun getChildren() = models.values.toList()
 
-    fun addJar(file: File) {
+    fun addJar(file: File): Boolean {
+        if(file.absolutePath in models) return false
         val jarNode = DefaultMutableTreeNode()
         val jar = JarNode(file, jarNode)
         jarNode.userObject = jar
         models[file.absolutePath] = jar
 
-        insert(jarNode, childCount)
+        insert(jarNode, 0)
+        return true
+    }
+
+    fun removeJar(file: String) {
+        val jar = models.remove(file) ?: return
+        remove(jar.node)
     }
 
     override fun toString(): String {
