@@ -4,6 +4,7 @@ import java.awt.Dimension
 import javax.swing.*
 import com.formdev.flatlaf.FlatDarkLaf
 import com.strobel.decompiler.DecompilerSettings
+import java.awt.Toolkit
 
 object MainWindow : JFrame() {
 
@@ -33,5 +34,8 @@ object MainWindow : JFrame() {
         jMenuBar = JMenuBar()
 
         pack()
+
+        val screen = Toolkit.getDefaultToolkit().screenSize
+        setLocation((screen.width - width) / 2, (screen.height - height) / 2)
     }
 }

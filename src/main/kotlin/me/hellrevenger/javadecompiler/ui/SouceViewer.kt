@@ -4,20 +4,31 @@ import com.strobel.assembler.metadata.MetadataSystem
 import com.strobel.decompiler.DecompilationOptions
 import me.hellrevenger.javadecompiler.decompiler.LinkableTextOutput
 import java.awt.*
+import java.awt.event.KeyEvent
 import javax.swing.*
+import javax.swing.text.html.HTMLDocument
+import kotlin.random.Random
 
-class SouceViewer : JTabbedPane() {
+class SouceViewer : JTabbedPane(), Searchable {
     val tabs = hashMapOf<String, HashMap<String, Pair<Component, JTextPane>>>()
+    val searchComponent: JSearch
 
     init {
         border = BorderFactory.createLineBorder(Color.GRAY)
+
+        searchComponent = JSearch()
+        searchComponent.target = this
+        registerKeyboardAction({ e ->
+            if(tabCount > 0)
+                searchComponent.isVisible = true
+        }, KeyStroke.getKeyStroke(KeyEvent.VK_F, KeyEvent.CTRL_DOWN_MASK), JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT)
     }
 
     override fun addTab(path: String, component: Component?) {
         val delimiter = path.lastIndexOf("/")
         val title = if(delimiter == -1) path else path.substring(delimiter + 1)
 
-        super.addTab("$title", component)
+        super.addTab(title, component)
 
         val tab = JPanel(GridBagLayout())
         tab.add(JLabel("$title   "))
@@ -64,6 +75,29 @@ class SouceViewer : JTabbedPane() {
         findTab(path)?.let {
             LinkableTextOutput.instances[path]?.onClose()
             removeTabAt(indexOfTabComponent(it.first))
+        }
+    }
+
+    override fun search(text: String, config: SearchConfig) {
+        (selectedComponent as? JScrollPane)?.let {
+            (it.viewport.view as? JTextPane)?.let { pane ->
+                val source = pane.document.getText(0, pane.document.length)
+                val regexOptions = mutableSetOf<RegexOption>()
+                if(!config.regex) regexOptions.add(RegexOption.LITERAL)
+                if(!config.matchCase) regexOptions.add(RegexOption.IGNORE_CASE)
+                RegexOption.DOT_MATCHES_ALL
+                val regex = if(config.matchCase) {
+                    text.toRegex()
+                } else {
+                    text.toRegex(RegexOption.IGNORE_CASE)
+                }
+                var result = regex.find(source, pane.selectionEnd)
+                if(result == null) result = regex.find(source, 0)
+                result?.let {  result ->
+                    pane.select(result.range.first, result.range.last+1)
+                }
+
+            }
         }
     }
 }

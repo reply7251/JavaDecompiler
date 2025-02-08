@@ -72,7 +72,6 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
                     val className = if(delimiter == -1) it.description else it.description.substring(0, delimiter)
                     MainWindow.fileTree.openClass(className)?.let { pane ->
                         instances[className]?.links?.get(it.description)?.let {
-                            println("try select")
                             pane.select(it.first, it.second)
                             return@addHyperlinkListener
                         }
