@@ -8,7 +8,7 @@ import java.awt.Toolkit
 
 object MainWindow : JFrame() {
 
-    val settings: DecompilerSettings = DecompilerSettings()
+    val settings: DecompilerSettings = DecompilerSettings.javaDefaults()
     val sourceViewer: SouceViewer
     val fileTree: FileTree
 
@@ -21,7 +21,6 @@ object MainWindow : JFrame() {
 
         sourceViewer = SouceViewer()
         fileTree = FileTree()
-
 
         val pane = JSplitPane()
         pane.rightComponent = sourceViewer

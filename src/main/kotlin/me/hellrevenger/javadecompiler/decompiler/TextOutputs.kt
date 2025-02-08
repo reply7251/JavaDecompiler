@@ -5,13 +5,14 @@ import com.strobel.decompiler.PlainTextOutput
 import me.hellrevenger.javadecompiler.ui.KeyBoard
 import me.hellrevenger.javadecompiler.ui.KeyEventDispatcher
 import me.hellrevenger.javadecompiler.ui.MainWindow
+import java.awt.Color
 import java.awt.event.KeyEvent
 import javax.swing.JTextPane
 import javax.swing.event.HyperlinkEvent
+import javax.swing.text.*
 import javax.swing.text.AbstractDocument.AbstractElement
-import javax.swing.text.DefaultStyledDocument
-import javax.swing.text.SimpleAttributeSet
-import javax.swing.text.StyleConstants
+import javax.swing.text.html.HTML
+import javax.swing.text.html.HTMLDocument
 import javax.swing.text.html.HTMLEditorKit
 import javax.swing.text.html.StyleSheet
 
@@ -42,6 +43,14 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
             field = value
         }
 
+    val highlightPainter = DefaultHighlighter.DefaultHighlightPainter(Color.decode("0x606060"))
+
+
+    var literal = true
+    val literalRegex = "[a-zA-Z_][\\w\$]*".toRegex()
+    val literals = hashMapOf<String, HashSet<Int>>()
+
+
 
     init {
         instances[className] = this
@@ -62,8 +71,9 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
         pane.document = html.createDefaultDocument()
 
         pane.addHyperlinkListener {
-            if(KeyBoard.isModifierPressed(KeyEvent.CTRL_DOWN_MASK)) {
-                if(it.eventType == HyperlinkEvent.EventType.ACTIVATED) {
+            if(it.eventType == HyperlinkEvent.EventType.ACTIVATED) {
+                tryHighlight(it)
+                if(KeyBoard.isModifierPressed(KeyEvent.CTRL_DOWN_MASK) && !it.description.startsWith("!")) {
                     links[it.description]?.let {
                         pane.select(it.first, it.second)
                         return@addHyperlinkListener
@@ -86,6 +96,7 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
         }
 
         KeyBoard.registerKeyEvent(this)
+        pane.highlighter = DefaultHighlighter()
     }
 
     override fun write(ch: Char) {
@@ -95,7 +106,15 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
 
     override fun write(text: String) {
         super.write(text)
+        var hasLiteral = false
+        if(literal && literalRegex.matches(text)) {
+            literals.computeIfAbsent(text) { hashSetOf() }.add(currentTextIndex)
+            href("!$text")
+            hasLiteral = true
+            // why procyon doesn't handle variables and method references (::), just treat them as identifier
+        }
         appendVisual(text)
+        if(hasLiteral) endHref()
     }
 
     override fun writeLine() {
@@ -114,19 +133,25 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
 
     override fun writeAttribute(text: String?) {
         span("comment", "/* attr */ ")
+        literal = false
         super.writeAttribute(text)
+        literal = true
         count("attr")
     }
 
     override fun writeComment(value: String?) {
         span("comment")
+        literal = false
         super.writeComment(value)
+        literal = true
         endSpan()
     }
 
     override fun writeTextLiteral(value: Any?) {
         span("text")
+        literal = false
         super.writeTextLiteral(value)
+        literal = true
         endSpan()
     }
 
@@ -135,11 +160,14 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
         var processed = false
         val start = currentTextIndex + 1
         val end = currentTextIndex + text.length + 1
+        var hasHref = false
 
-        (definition as? MethodDefinition)?.let {
+        (definition as? MethodReference)?.let {
             val def = "${it.fullName} ${it.signature}"
             links[def] = start to end
             processed = true
+            href("!$def")
+            hasHref = true
         }
         (definition as? FieldDefinition)?.let {
             val def = it.fullName
@@ -147,6 +175,8 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
             processed = true
         }
         (definition as? ParameterDefinition)?.let {
+            href("!" + it.name)
+            hasHref = true
             processed = true
         }
         (definition as? TypeDefinition)?.let {
@@ -157,7 +187,11 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
         if(!processed) {
             span("def", "/* def ${className} */ ")
         }
+        literal = false
         super.writeDefinition(text, definition, isLocal)
+        literal = true
+
+        if(hasHref) endHref()
     }
 
     override fun writeReference(text: String?, reference: Any) {
@@ -185,14 +219,18 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
         if(!processed) {
             span("ref", "/* ref ${className} */ ")
         }
+        literal = false
         super.writeReference(text, reference)
+        literal = true
 
         if(hasHref) endHref()
     }
 
     override fun writeKeyword(text: String?) {
         span("keyword")
+        literal = false
         super.writeKeyword(text)
+        literal = true
         endSpan()
     }
 
@@ -243,5 +281,32 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
 
     override fun onKey(event: KeyEvent) {
         changeFocus(focusElement, focusElement)
+    }
+
+    fun sameHref(href1: String, href2: String): Boolean {
+        val href1 = if(href1.startsWith("!")) href1.substring(1) else href1
+        val href2 = if(href2.startsWith("!")) href2.substring(1) else href2
+        return href1 == href2
+    }
+
+    fun tryHighlight(e: HyperlinkEvent) {
+        (pane.document as? HTMLDocument)?.let { doc ->
+            pane.highlighter.removeAllHighlights()
+            val iter = ElementIterator(doc)
+            while (iter.next() != null) {
+                val elem = iter.current()
+                (elem.attributes.getAttribute(HTML.Tag.A) as? AttributeSet)?.let {
+                    val href = it.getAttribute(HTML.Attribute.HREF) as String
+                    if(sameHref(href, e.description)) {
+                        var startOffset = elem.startOffset
+                        while (doc.getText(startOffset, 1) == " ") startOffset++
+                        pane.highlighter.addHighlight(startOffset, elem.endOffset, highlightPainter)
+                    }
+                }
+            }
+            links[e.description]?.let {
+                pane.highlighter.addHighlight(it.first, it.second, highlightPainter)
+            }
+        }
     }
 }
