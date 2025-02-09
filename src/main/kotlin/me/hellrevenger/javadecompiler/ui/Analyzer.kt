@@ -3,12 +3,15 @@ package me.hellrevenger.javadecompiler.ui
 import com.strobel.assembler.metadata.JarTypeLoader
 import com.strobel.decompiler.DecompilationOptions
 import me.hellrevenger.javadecompiler.decompiler.FullScanTextOutput
+import me.hellrevenger.javadecompiler.decompiler.LinkableTextOutput.Companion.instances
 import me.hellrevenger.javadecompiler.decompiler.NoRetryMetadataSystem
 import java.awt.Dimension
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Insets
 import java.awt.event.ActionEvent
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import java.util.jar.JarFile
 import javax.swing.AbstractAction
 import javax.swing.JButton
@@ -19,9 +22,14 @@ import javax.swing.JTextPane
 import javax.swing.JTree
 import javax.swing.event.TreeExpansionEvent
 import javax.swing.event.TreeWillExpandListener
+import javax.swing.text.AttributeSet
+import javax.swing.text.ElementIterator
+import javax.swing.text.html.HTML
+import javax.swing.text.html.HTMLDocument
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
 import kotlin.concurrent.thread
+import kotlin.random.Random
 
 class Analyzer : JTree() {
     val analyses = hashMapOf<String, FullScanTextOutput.JavaType>()
@@ -76,10 +84,49 @@ class Analyzer : JTree() {
                 (event.path.lastPathComponent as? LazyNode)?.loadChildren()
             }
 
-            override fun treeWillCollapse(event: TreeExpansionEvent) {
+            override fun treeWillCollapse(event: TreeExpansionEvent) { }
+        })
 
+        addMouseListener(object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                if(e.clickCount == 2) {
+                    val path = getPathForLocation(e.x, e.y) ?: return
+                    (path.lastPathComponent as? HasUsageNode)?.let {
+                        val description = it.target.toString()
+                        val delimiter = description.indexOf(".")
+                        val className = if(delimiter == -1) description else description.substring(0, delimiter)
+                        MainWindow.fileTree.openClass(className)?.let { pane ->
+                            (it.parent?.parent as? HasUsageNode)?.target?.toString()?.let {  target ->
+                                instances[className]?.links?.get(description)?.let {
+                                    val from = "!$description"
+                                    var findFrom = false
+                                    (pane.document as? HTMLDocument)?.let { doc ->
+                                        val iter = ElementIterator(doc)
+                                        while (iter.next() != null) {
+                                            val elem = iter.current()
+                                            (elem.attributes.getAttribute(HTML.Tag.A) as? AttributeSet)?.let {
+                                                val href = it.getAttribute(HTML.Attribute.HREF) as String
+                                                if(href == from) {
+                                                    findFrom = true
+                                                } else if(findFrom && href == target) {
+                                                    var startOffset = elem.startOffset
+                                                    while (doc.getText(startOffset, 1) == " ") startOffset++
+                                                    pane.grabFocus()
+                                                    pane.select(startOffset, elem.endOffset)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                        }
+                    }
+                }
             }
         })
+
+        setToggleClickCount(-1)
     }
 
     fun scanJar(path: String, filter: String = "") {

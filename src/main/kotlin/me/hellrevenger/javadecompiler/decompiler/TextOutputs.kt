@@ -115,6 +115,12 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
 
         KeyBoard.registerKeyEvent(this)
         pane.highlighter = DefaultHighlighter()
+
+        pane.caret = object : DefaultCaret() {
+            override fun setSelectionVisible(vis: Boolean) {
+                super.setSelectionVisible(true)
+            }
+        }
     }
 
     override fun write(ch: Char) {
@@ -181,14 +187,18 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
         var hasHref = false
 
         (definition as? MethodReference)?.let {
-            val def = "${it.fullName} ${it.signature}"
+            val type = it.declaringType.fullName.replace(".", "/")
+            val name = "${it.name} ${it.signature}"
+            val def = "$type.$name"
             links[def] = start to end
             processed = true
             href("!$def")
             hasHref = true
         }
         (definition as? FieldDefinition)?.let {
-            val def = it.fullName
+            val type = it.declaringType.fullName.replace(".", "/")
+            val name = it.name
+            val def = "$type.$name"
             links[def] = start to end
             href("!$def")
             processed = true
@@ -219,7 +229,9 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
         var processed = false
         var hasHref = false
         (reference as? MethodReference)?.let {
-            val ref = "${it.fullName} ${it.signature}"
+            val type = it.declaringType.fullName.replace(".", "/")
+            val name = "${it.name} ${it.signature}"
+            val ref = "$type.$name"
             href(ref)
             processed = true
             hasHref = true
@@ -227,7 +239,10 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
         if(reference is PackageReference || reference is GenericParameter || className == "UnresolvedGenericType")
             processed = true
         (reference as? FieldReference)?.let {
-            href(it.declaringType.toString().replace(".", "/") + "." + text)
+            val type = it.declaringType.fullName.replace(".", "/")
+            val name = it.name
+            val ref = "$type.$name"
+            href(ref)
             processed = true
             hasHref = true
         }

@@ -6,8 +6,6 @@ import me.hellrevenger.javadecompiler.decompiler.LinkableTextOutput
 import java.awt.*
 import java.awt.event.KeyEvent
 import javax.swing.*
-import javax.swing.text.html.HTMLDocument
-import kotlin.random.Random
 
 class SouceViewer : JTabbedPane(), Searchable {
     val tabs = hashMapOf<String, HashMap<String, Pair<Component, JTextPane>>>()
@@ -34,7 +32,6 @@ class SouceViewer : JTabbedPane(), Searchable {
         tab.add(JLabel("$title   "))
         tab.add(CloseButton(path))
         setTabComponentAt(tabCount-1, tab)
-
     }
 
     fun findTab(path: String): Pair<Component, JTextPane>? {
@@ -48,7 +45,10 @@ class SouceViewer : JTabbedPane(), Searchable {
 
     fun openClass(file: String, system: MetadataSystem, path: String): JTextPane? {
         val foundTab = findTab(path)
-        if(foundTab != null) return foundTab.second
+        if(foundTab != null) {
+            selectedIndex = indexOfTabComponent(foundTab.first)
+            return foundTab.second
+        }
 
         val lookup = system.lookupType(path) ?: return null
         val resolve = lookup.resolve() ?: return null
@@ -75,28 +75,30 @@ class SouceViewer : JTabbedPane(), Searchable {
         findTab(path)?.let {
             LinkableTextOutput.instances[path]?.onClose()
             removeTabAt(indexOfTabComponent(it.first))
+            tabs.forEach { (t, u) ->
+                u.remove(path)
+            }
         }
     }
 
-    override fun search(text: String, config: SearchConfig) {
-        (selectedComponent as? JScrollPane)?.let {
-            (it.viewport.view as? JTextPane)?.let { pane ->
-                val source = pane.document.getText(0, pane.document.length)
-                val regexOptions = mutableSetOf<RegexOption>()
-                if(!config.regex) regexOptions.add(RegexOption.LITERAL)
-                if(!config.matchCase) regexOptions.add(RegexOption.IGNORE_CASE)
-                RegexOption.DOT_MATCHES_ALL
-                val regex = if(config.matchCase) {
-                    text.toRegex()
-                } else {
-                    text.toRegex(RegexOption.IGNORE_CASE)
-                }
-                var result = regex.find(source, pane.selectionEnd)
-                if(result == null) result = regex.find(source, 0)
-                result?.let {  result ->
-                    pane.select(result.range.first, result.range.last+1)
-                }
+    fun getTextPane(): JTextPane? = (selectedComponent as? JScrollPane)?.let { return it.viewport.view as? JTextPane }
 
+    override fun search(text: String, config: SearchConfig) {
+        getTextPane()?.let { pane ->
+            val source = pane.document.getText(0, pane.document.length)
+            val regexOptions = mutableSetOf<RegexOption>()
+            if(!config.regex) regexOptions.add(RegexOption.LITERAL)
+            if(!config.matchCase) regexOptions.add(RegexOption.IGNORE_CASE)
+            RegexOption.DOT_MATCHES_ALL
+            val regex = if(config.matchCase) {
+                text.toRegex()
+            } else {
+                text.toRegex(RegexOption.IGNORE_CASE)
+            }
+            var result = regex.find(source, pane.selectionEnd)
+            if(result == null) result = regex.find(source, 0)
+            result?.let {  result ->
+                pane.select(result.range.first, result.range.last+1)
             }
         }
     }
