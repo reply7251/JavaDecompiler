@@ -76,6 +76,7 @@ class FileTree : JTree() {
             systems[file.absolutePath] = system
         }
         expandRow(0)
+        (model as? DefaultTreeModel)?.nodeStructureChanged(jars)
     }
 
     fun openClass(path: String): JTextPane? {
@@ -137,7 +138,7 @@ class FileMouseListener(val tree: FileTree) : MouseListener {
                         val abso = (it.userObject as? JarNode)?.getPath() ?: return
                         MainWindow.sourceViewer.onFileRemoved(abso)
                         tree.jars.removeJar(abso)
-                        (tree.model as? DefaultTreeModel)?.reload()
+                        (tree.model as? DefaultTreeModel)?.nodeStructureChanged(tree.jars)
                     }
                 }
                 menu.isVisible = true

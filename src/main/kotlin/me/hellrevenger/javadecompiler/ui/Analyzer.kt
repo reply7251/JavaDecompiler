@@ -36,7 +36,7 @@ class Analyzer : JTree() {
     val owners = hashMapOf<String, Set<String>>()
     val ownersTiny = hashMapOf<String, Set<String>>()
     val root = DefaultMutableTreeNode()
-
+    val openedAnalyses = hashSetOf<String>()
 
     val dialog: JDialog
     val pane: JTextPane
@@ -113,6 +113,7 @@ class Analyzer : JTree() {
                                                     while (doc.getText(startOffset, 1) == " ") startOffset++
                                                     pane.grabFocus()
                                                     pane.select(startOffset, elem.endOffset)
+                                                    return
                                                 }
                                             }
                                         }
@@ -192,6 +193,8 @@ class Analyzer : JTree() {
 
     fun analyze(href: String) {
         val href = if(href.startsWith("!")) href.substring(1) else href
+        if(href in openedAnalyses) return
+        openedAnalyses.add(href)
 
         if("." in href) {
             val split = href.split(".")
@@ -212,6 +215,7 @@ class Analyzer : JTree() {
                 root.add(HasUsageNode(it))
             }
         }
+        (model as? DefaultTreeModel)?.nodeStructureChanged(root)
         expandRow(0)
     }
 }
