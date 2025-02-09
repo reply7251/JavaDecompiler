@@ -11,6 +11,7 @@ object MainWindow : JFrame() {
     val settings: DecompilerSettings = DecompilerSettings.javaDefaults()
     val sourceViewer: SouceViewer
     val fileTree: FileTree
+    val analyzer: Analyzer
 
     init {
         defaultCloseOperation = EXIT_ON_CLOSE
@@ -21,20 +22,26 @@ object MainWindow : JFrame() {
 
         sourceViewer = SouceViewer()
         fileTree = FileTree()
+        analyzer = Analyzer()
 
         val pane = JSplitPane()
-        pane.rightComponent = sourceViewer
+        val pane2 = JSplitPane(JSplitPane.VERTICAL_SPLIT)
+        pane2.leftComponent = sourceViewer
+        pane2.rightComponent = JScrollPane(analyzer)
+        pane2.dividerLocation = 450
+        pane.rightComponent = pane2
         pane.leftComponent = JScrollPane(fileTree)
         pane.dividerLocation = 200
         add(pane)
 
-        preferredSize = Dimension(800, 600)
+
+
+        preferredSize = Dimension(1080, 720)
 
         jMenuBar = JMenuBar()
 
         pack()
 
-        val screen = Toolkit.getDefaultToolkit().screenSize
-        setLocation((screen.width - width) / 2, (screen.height - height) / 2)
+        Utils.setToCenter(this)
     }
 }

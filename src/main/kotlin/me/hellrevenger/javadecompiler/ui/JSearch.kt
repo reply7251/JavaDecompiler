@@ -63,8 +63,7 @@ class JSearch : JDialog() {
         inputSearch.preferredSize = Dimension(200, 20)
         pack()
 
-        val screen = Toolkit.getDefaultToolkit().screenSize
-        setLocation((screen.width - width) / 2, (screen.height - height) / 2)
+        Utils.setToCenter(this)
     }
 }
 

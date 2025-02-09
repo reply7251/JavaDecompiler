@@ -1,9 +1,12 @@
 package me.hellrevenger.javadecompiler.ui
 
+import me.hellrevenger.javadecompiler.decompiler.FullScanTextOutput
 import java.io.File
+import java.util.*
 import java.util.jar.JarFile
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.MutableTreeNode
+import javax.swing.tree.TreeNode
 
 fun <K: Comparable<K>,V> Map<K,V>.sortByKey() = this.toList().sortedBy { it.first }.map { it.second }
 
@@ -117,4 +120,39 @@ class Jars : DefaultMutableTreeNode() {
     override fun toString(): String {
         return ""
     }
+}
+
+class HasUsageNode(val target: FullScanTextOutput.HasUsage) : DefaultMutableTreeNode(target) {
+    init {
+        val uses = LazyNode({ node ->
+            target.uses.forEach {
+                node.add(HasUsageNode(it))
+            }
+        }, "uses")
+        val usedBy = LazyNode({ node ->
+            target.usedBy.forEach {
+                node.add(HasUsageNode(it))
+            }
+        }, "used by")
+        insert(uses, childCount)
+        insert(usedBy, childCount)
+    }
+
+    override fun toString(): String {
+        val result = super.toString()
+        if(" " in result) return result.split(" ")[0] + "()"
+        return result
+    }
+}
+
+class LazyNode(val onLoad: (LazyNode) -> Unit, obj: Any? = null) : DefaultMutableTreeNode(obj) {
+    var loaded = false
+
+    fun loadChildren() {
+        if(loaded) return
+        loaded = true
+        onLoad(this)
+    }
+
+    override fun isLeaf() = false
 }

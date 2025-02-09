@@ -2,11 +2,16 @@ package me.hellrevenger.javadecompiler.decompiler
 
 import com.strobel.assembler.metadata.*
 import com.strobel.decompiler.PlainTextOutput
+import me.hellrevenger.javadecompiler.ui.HyperLinkRightClickHandler
 import me.hellrevenger.javadecompiler.ui.KeyBoard
 import me.hellrevenger.javadecompiler.ui.KeyEventDispatcher
 import me.hellrevenger.javadecompiler.ui.MainWindow
 import java.awt.Color
+import java.awt.event.ActionEvent
 import java.awt.event.KeyEvent
+import java.io.Writer
+import javax.swing.AbstractAction
+import javax.swing.JPopupMenu
 import javax.swing.JTextPane
 import javax.swing.event.HyperlinkEvent
 import javax.swing.text.*
@@ -16,7 +21,9 @@ import javax.swing.text.html.HTMLDocument
 import javax.swing.text.html.HTMLEditorKit
 import javax.swing.text.html.StyleSheet
 
-class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainTextOutput(), KeyEventDispatcher {
+val literalRegex = "[a-zA-Z_][\\w\$]*".toRegex()
+
+class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainTextOutput(Writer.nullWriter()), KeyEventDispatcher {
     companion object {
         val instances = mutableMapOf<String, LinkableTextOutput>()
 
@@ -47,7 +54,6 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
 
 
     var literal = true
-    val literalRegex = "[a-zA-Z_][\\w\$]*".toRegex()
     val literals = hashMapOf<String, HashSet<Int>>()
 
 
@@ -94,6 +100,18 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
                 focusElement = null
             }
         }
+        pane.addMouseListener(HyperLinkRightClickHandler { e, element, href ->
+            val popup = JPopupMenu()
+            popup.add(object : AbstractAction("Analyze") {
+                override fun actionPerformed(e: ActionEvent?) {
+                    MainWindow.analyzer.analyze(href)
+                }
+            })
+
+            popup.setLocation(e.xOnScreen, e.yOnScreen)
+            popup.invoker = pane
+            popup.isVisible = true
+        })
 
         KeyBoard.registerKeyEvent(this)
         pane.highlighter = DefaultHighlighter()
@@ -172,7 +190,9 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
         (definition as? FieldDefinition)?.let {
             val def = it.fullName
             links[def] = start to end
+            href("!$def")
             processed = true
+            hasHref = true
         }
         (definition as? ParameterDefinition)?.let {
             href("!" + it.name)
@@ -268,7 +288,10 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
         }
         new?.let {
             if(KeyBoard.isModifierPressed(KeyEvent.CTRL_DOWN_MASK)) {
-                (it.document as? DefaultStyledDocument)?.setCharacterAttributes(it.startOffset, it.endOffset - it.startOffset,
+
+                var startOffset = it.startOffset
+                while (it.document.getText(startOffset, 1) == " ") startOffset++
+                (it.document as? DefaultStyledDocument)?.setCharacterAttributes(startOffset, it.endOffset - startOffset,
                     underline, false)
             }
         }
@@ -307,6 +330,85 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
             links[e.description]?.let {
                 pane.highlighter.addHighlight(it.first, it.second, highlightPainter)
             }
+        }
+    }
+}
+
+class FullScanTextOutput : PlainTextOutput(Writer.nullWriter()) {
+    var currentUsage : HasUsage? = null
+    val types = hashMapOf<String, JavaType>()
+    var lastKeyword = ""
+
+    fun getType(name: String) = types.computeIfAbsent(name) { JavaType(name) }
+
+    override fun write(text: String) {
+        if(text == "{" && lastKeyword == "static") {
+            currentUsage = null
+        }
+    }
+
+    override fun writeKeyword(text: String) {
+        lastKeyword = text
+    }
+
+    override fun writeDefinition(text: String, definition: Any, isLocal: Boolean) {
+        lastKeyword = ""
+        (definition as? MethodReference)?.let {
+            val type = getType(it.declaringType.fullName.replace(".", "/"))
+            val def = "${it.name} ${it.signature}"
+            currentUsage = type.getMethod(def)
+        }
+        (definition as? FieldDefinition)?.let {
+            val def = it.name
+            val type = getType(it.declaringType.fullName.replace(".", "/"))
+            currentUsage = type.getField(def)
+        }
+        (definition as? TypeDefinition)?.let {
+            val def = it.fullName.replace(".", "/")
+            currentUsage = getType(def)
+        }
+        super.writeDefinition(text, definition, isLocal)
+    }
+
+    override fun writeReference(text: String?, reference: Any) {
+        (reference as? MethodReference)?.let {
+            val type = getType(it.declaringType.fullName.replace(".", "/"))
+            val ref = "${it.name} ${it.signature}"
+            currentUsage?.addUsage(type.getMethod(ref))
+        }
+        (reference as? FieldReference)?.let {
+            val type = getType(it.declaringType.fullName.replace(".", "/"))
+            val ref = it.name
+            currentUsage?.addUsage(type.getField(ref))
+        }
+        (reference as? TypeReference)?.let {
+            val type = getType(it.fullName.replace(".", "/"))
+            currentUsage?.addUsage(type)
+        }
+        super.writeReference(text, reference)
+    }
+
+    abstract class HasUsage {
+        val uses = hashSetOf<HasUsage>()
+        val usedBy = hashSetOf<HasUsage>()
+
+        fun addUsage(target: HasUsage) {
+            uses.add(target)
+            target.usedBy.add(this)
+        }
+    }
+    class JavaType(val name: String): HasUsage() {
+        val fields = hashMapOf<String, JavaMember>()
+        val methods = hashMapOf<String, JavaMember>()
+        fun getMethod(name: String) = methods.computeIfAbsent(name) { JavaMember(this, name) }
+        fun getField(name: String)  = fields.computeIfAbsent(name) { JavaMember(this, name) }
+        override fun toString(): String {
+            return name
+        }
+    }
+    class JavaMember(val owner: JavaType, val name: String) : HasUsage() {
+        override fun toString(): String {
+            return "$owner.$name"
         }
     }
 }

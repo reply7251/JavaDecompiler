@@ -36,7 +36,6 @@ class FileTree : JTree() {
 
         dropTarget = object : DropTarget(){
             override fun drop(event: DropTargetDropEvent) {
-                println("drop")
                 try {
                     event.acceptDrop(DnDConstants.ACTION_COPY)
                     val files = event.transferable.getTransferData(DataFlavor.javaFileListFlavor) as List<File>
@@ -126,12 +125,37 @@ class FileMouseListener(val tree: FileTree) : MouseListener {
                 val menu = JPopupMenu()
                 menu.invoker = tree
                 menu.setLocation(e.xOnScreen, e.yOnScreen)
-                menu.add("").action = object : AbstractAction("close") {
+                menu.add("").action = object : AbstractAction("Full Scan") {
+                    override fun actionPerformed(e: ActionEvent) {
+                        val abso = (it.userObject as? JarNode)?.getPath() ?: return
+                        MainWindow.analyzer.scanJar(abso)
+                    }
+                }
+                menu.add("")
+                menu.add("").action = object : AbstractAction("Close") {
                     override fun actionPerformed(e: ActionEvent) {
                         val abso = (it.userObject as? JarNode)?.getPath() ?: return
                         MainWindow.sourceViewer.onFileRemoved(abso)
                         tree.jars.removeJar(abso)
                         (tree.model as? DefaultTreeModel)?.reload()
+                    }
+                }
+                menu.isVisible = true
+            }
+        } else if(path.pathCount > 2) {
+            (path.getPathComponent(1) as? DefaultMutableTreeNode)?.let {
+                val iterator = path.path.iterator()
+                iterator.next()
+                iterator.next()
+                val path = iterator.asSequence().joinToString("/")
+
+                val menu = JPopupMenu()
+                menu.invoker = tree
+                menu.setLocation(e.xOnScreen, e.yOnScreen)
+                menu.add("").action = object : AbstractAction("Scan") {
+                    override fun actionPerformed(e: ActionEvent) {
+                        val abso = (it.userObject as? JarNode)?.getPath() ?: return
+                        MainWindow.analyzer.scanJar(abso, path)
                     }
                 }
                 menu.isVisible = true
