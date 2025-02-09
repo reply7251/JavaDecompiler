@@ -6,6 +6,10 @@ import me.hellrevenger.javadecompiler.decompiler.LinkableTextOutput
 import java.awt.*
 import java.awt.event.KeyEvent
 import javax.swing.*
+import javax.swing.text.AttributeSet
+import javax.swing.text.ElementIterator
+import javax.swing.text.html.HTML
+import javax.swing.text.html.HTMLDocument
 
 class SouceViewer : JTabbedPane(), Searchable {
     val tabs = hashMapOf<String, HashMap<String, Pair<Component, JTextPane>>>()
@@ -64,6 +68,28 @@ class SouceViewer : JTabbedPane(), Searchable {
         return pane
     }
 
+    fun searchHref(targetHref: String, afterHref: String? = null) {
+        val pane = getTextPane() ?: return
+        val doc = pane.document as? HTMLDocument ?: return
+        val iter = ElementIterator(doc)
+        var findAfter = afterHref == null
+        while (iter.next() != null) {
+            val elem = iter.current()
+            (elem.attributes.getAttribute(HTML.Tag.A) as? AttributeSet)?.let {
+                val href = it.getAttribute(HTML.Attribute.HREF) as String
+                if(href == afterHref) {
+                    findAfter = true
+                } else if(findAfter && href == targetHref) {
+                    var startOffset = elem.startOffset
+                    while (doc.getText(startOffset, 1) == " ") startOffset++
+                    pane.grabFocus()
+                    pane.select(startOffset, elem.endOffset)
+                    return
+                }
+            }
+        }
+    }
+
     fun onFileRemoved(path: String) {
         tabs[path]?.forEach { (t, u) ->
             closeTab(t)
@@ -97,7 +123,7 @@ class SouceViewer : JTabbedPane(), Searchable {
             }
             var result = regex.find(source, pane.selectionEnd)
             if(result == null) result = regex.find(source, 0)
-            result?.let {  result ->
+            result?.let { result ->
                 pane.select(result.range.first, result.range.last+1)
             }
         }

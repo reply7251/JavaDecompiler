@@ -191,8 +191,8 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
             val name = "${it.name} ${it.signature}"
             val def = "$type.$name"
             links[def] = start to end
-            processed = true
             href("!$def")
+            processed = true
             hasHref = true
         }
         (definition as? FieldDefinition)?.let {
@@ -212,7 +212,9 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
         (definition as? TypeDefinition)?.let {
             val def = it.fullName.replace(".", "/")
             links[def] = start to end
+            href("!$def")
             processed = true
+            hasHref = true
         }
         if(!processed) {
             span("def", "/* def ${className} */ ")

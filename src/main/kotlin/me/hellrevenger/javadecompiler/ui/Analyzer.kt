@@ -3,41 +3,40 @@ package me.hellrevenger.javadecompiler.ui
 import com.strobel.assembler.metadata.JarTypeLoader
 import com.strobel.decompiler.DecompilationOptions
 import me.hellrevenger.javadecompiler.decompiler.FullScanTextOutput
-import me.hellrevenger.javadecompiler.decompiler.LinkableTextOutput.Companion.instances
 import me.hellrevenger.javadecompiler.decompiler.NoRetryMetadataSystem
 import java.awt.Dimension
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Insets
-import java.awt.event.ActionEvent
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
+import java.awt.event.*
 import java.util.jar.JarFile
 import javax.swing.AbstractAction
+import javax.swing.DefaultListModel
 import javax.swing.JButton
+import javax.swing.JComboBox
 import javax.swing.JDialog
+import javax.swing.JList
+import javax.swing.JPanel
 import javax.swing.JProgressBar
 import javax.swing.JScrollPane
+import javax.swing.JTabbedPane
+import javax.swing.JTextField
 import javax.swing.JTextPane
 import javax.swing.JTree
 import javax.swing.event.TreeExpansionEvent
 import javax.swing.event.TreeWillExpandListener
-import javax.swing.text.AttributeSet
-import javax.swing.text.ElementIterator
-import javax.swing.text.html.HTML
-import javax.swing.text.html.HTMLDocument
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
 import kotlin.concurrent.thread
-import kotlin.random.Random
 
-class Analyzer : JTree() {
+class Analyzer : JTabbedPane() {
     val analyses = hashMapOf<String, FullScanTextOutput.JavaType>()
     val owners = hashMapOf<String, Set<String>>()
     val ownersTiny = hashMapOf<String, Set<String>>()
     val root = DefaultMutableTreeNode()
     val openedAnalyses = hashSetOf<String>()
 
+    val tree: JTree
     val dialog: JDialog
     val pane: JTextPane
     val bar: JProgressBar
@@ -45,7 +44,7 @@ class Analyzer : JTree() {
     val stopButton:JButton
 
     init {
-        model = DefaultTreeModel(root)
+        tree = JTree()
 
         dialog = JDialog()
         pane = JTextPane()
@@ -56,6 +55,12 @@ class Analyzer : JTree() {
             }
         })
 
+        initScanDialog()
+        initTree()
+        addTab("Search", JScrollPane(SearchGlobal()))
+    }
+
+    fun initScanDialog() {
         dialog.layout = GridBagLayout()
         val gbc = GridBagConstraints()
         gbc.insets = Insets(5,5,5,5)
@@ -76,63 +81,50 @@ class Analyzer : JTree() {
         gbc.gridwidth = 1
 
         dialog.pack()
+        dialog.isAlwaysOnTop = true
 
         Utils.setToCenter(dialog)
+    }
 
-        addTreeWillExpandListener(object : TreeWillExpandListener{
-            override fun treeWillExpand(event: TreeExpansionEvent) {
-                (event.path.lastPathComponent as? LazyNode)?.loadChildren()
-            }
+    fun initTree() {
+        with(tree) {
+            model = DefaultTreeModel(root)
+            setToggleClickCount(-1)
 
-            override fun treeWillCollapse(event: TreeExpansionEvent) { }
-        })
+            addTreeWillExpandListener(object : TreeWillExpandListener{
+                override fun treeWillExpand(event: TreeExpansionEvent) {
+                    (event.path.lastPathComponent as? LazyNode)?.loadChildren()
+                }
 
-        addMouseListener(object : MouseAdapter() {
-            override fun mouseClicked(e: MouseEvent) {
-                if(e.clickCount == 2) {
-                    val path = getPathForLocation(e.x, e.y) ?: return
-                    (path.lastPathComponent as? HasUsageNode)?.let {
-                        val description = it.target.toString()
-                        val delimiter = description.indexOf(".")
-                        val className = if(delimiter == -1) description else description.substring(0, delimiter)
-                        MainWindow.fileTree.openClass(className)?.let { pane ->
-                            (it.parent?.parent as? HasUsageNode)?.target?.toString()?.let {  target ->
-                                instances[className]?.links?.get(description)?.let {
+                override fun treeWillCollapse(event: TreeExpansionEvent) { }
+            })
+
+            addMouseListener(object : MouseAdapter() {
+                override fun mouseClicked(e: MouseEvent) {
+                    if(e.clickCount == 2) {
+                        val path = getPathForLocation(e.x, e.y) ?: return
+                        (path.lastPathComponent as? HasUsageNode)?.let {
+                            val description = it.target.toString()
+                            val delimiter = description.indexOf(".")
+                            val className = if(delimiter == -1) description else description.substring(0, delimiter)
+                            MainWindow.fileTree.openClass(className)?.let { pane ->
+                                (it.parent?.parent as? HasUsageNode)?.target?.toString()?.let {  target ->
                                     val from = "!$description"
-                                    var findFrom = false
-                                    (pane.document as? HTMLDocument)?.let { doc ->
-                                        val iter = ElementIterator(doc)
-                                        while (iter.next() != null) {
-                                            val elem = iter.current()
-                                            (elem.attributes.getAttribute(HTML.Tag.A) as? AttributeSet)?.let {
-                                                val href = it.getAttribute(HTML.Attribute.HREF) as String
-                                                if(href == from) {
-                                                    findFrom = true
-                                                } else if(findFrom && href == target) {
-                                                    var startOffset = elem.startOffset
-                                                    while (doc.getText(startOffset, 1) == " ") startOffset++
-                                                    pane.grabFocus()
-                                                    pane.select(startOffset, elem.endOffset)
-                                                    return
-                                                }
-                                            }
-                                        }
-                                    }
+                                    MainWindow.sourceViewer.searchHref(target, from)
                                 }
                             }
-
                         }
                     }
                 }
-            }
-        })
-
-        setToggleClickCount(-1)
+            })
+        }
+        add("Analyze", tree)
     }
 
     fun scanJar(path: String, filter: String = "") {
         if(owners.contains(path)) return
-        owners[path] = setOf()
+        if(filter != "")
+            owners[path] = setOf()
 
         pane.text = ""
         dialog.isVisible = true
@@ -216,6 +208,101 @@ class Analyzer : JTree() {
             }
         }
         (model as? DefaultTreeModel)?.nodeStructureChanged(root)
-        expandRow(0)
+        tree.expandRow(0)
+    }
+}
+
+class SearchGlobal : JPanel() {
+    val list = JList<Link>()
+    val comboBox = JComboBox<String>()
+
+    init {
+        layout = GridBagLayout()
+        val gbc = GridBagConstraints()
+        gbc.fill = GridBagConstraints.BOTH
+        gbc.insets = Insets(5,5,5,5)
+
+        val inputSearch = JTextField()
+        initSearchInput(inputSearch)
+        initList()
+        initComboBox()
+
+        gbc.gridx = 0
+        gbc.gridy = 0
+        gbc.weightx = 1.0
+        add(inputSearch, gbc)
+        gbc.weightx = 0.0
+        gbc.gridx++
+        add(comboBox, gbc)
+        gbc.gridx = 0
+        gbc.gridy++
+        gbc.gridwidth = 2
+        gbc.weighty = 1.0
+        add(JScrollPane(list), gbc)
+        gbc.weighty = 0.0
+        gbc.gridwidth = 1
+    }
+
+    fun initSearchInput(input: JTextField) {
+        input.action = object : AbstractAction() {
+            override fun actionPerformed(e: ActionEvent?) {
+                search(input.text)
+            }
+        }
+    }
+
+    fun initList() {
+        val model = DefaultListModel<Link>()
+        list.model = model
+        list.layoutOrientation = JList.VERTICAL
+
+        list.addMouseListener(object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                if(e.clickCount != 2) return
+                val href = list.selectedValue.description
+                val description = if(href.startsWith("!")) href.substring(1) else href
+                val delimiter = description.indexOf(".")
+                val className = if(delimiter == -1) description else description.substring(0, delimiter)
+                MainWindow.fileTree.openClass(className)?.let { pane ->
+                    MainWindow.sourceViewer.searchHref(href)
+                }
+            }
+        })
+        list.visibleRowCount = -1
+    }
+
+    fun initComboBox() {
+        comboBox.addItem("Type/Method/Field")
+        comboBox.addItem("Type")
+        comboBox.addItem("Method/Field")
+        comboBox.addItem("Method")
+        comboBox.addItem("Field")
+    }
+
+    fun search(text: String) {
+        val model = list.model as? DefaultListModel ?: return
+        model.clear()
+        MainWindow.analyzer.analyses.forEach { (t, u) ->
+            val searchType = comboBox.selectedItem?.toString() ?: return@forEach
+            if(searchType.contains("Type") && t.contains(text, true)) {
+                model.add(model.size, Link(t, "!$t"))
+            }
+            if(searchType.contains("Method")) {
+                u.methods.forEach { (t, u) ->
+                    if(t.contains(text, true))
+                        model.add(model.size, Link(u.toString().split(" ")[0] + "()", "!$u"))
+                }
+            }
+            if(searchType.contains("Field")) {
+                u.fields.forEach { (t, u) ->
+                    if(t.contains(text, true))
+                        model.add(model.size, Link(u.toString(), "!$u"))
+                }
+            }
+        }
+    }
+
+    class Link(val display: String, val description: String) {
+        override fun toString() = display
     }
 }

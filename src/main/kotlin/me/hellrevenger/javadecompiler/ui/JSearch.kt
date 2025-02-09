@@ -64,6 +64,7 @@ class JSearch : JDialog() {
         pack()
 
         Utils.setToCenter(this)
+        isAlwaysOnTop = true
     }
 }
 
