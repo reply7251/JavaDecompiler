@@ -34,7 +34,7 @@ object MainWindow : JFrame() {
         pane.dividerLocation = 200
         add(pane)
 
-
+        title = "Java Decompiler"
 
         preferredSize = Dimension(1080, 720)
 
