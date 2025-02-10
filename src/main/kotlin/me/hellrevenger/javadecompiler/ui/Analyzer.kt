@@ -2,6 +2,7 @@ package me.hellrevenger.javadecompiler.ui
 
 import com.strobel.assembler.metadata.JarTypeLoader
 import com.strobel.decompiler.DecompilationOptions
+import com.strobel.decompiler.languages.BytecodeLanguage
 import me.hellrevenger.javadecompiler.decompiler.FullScanTextOutput
 import me.hellrevenger.javadecompiler.decompiler.NoRetryMetadataSystem
 import java.awt.Dimension
@@ -10,19 +11,7 @@ import java.awt.GridBagLayout
 import java.awt.Insets
 import java.awt.event.*
 import java.util.jar.JarFile
-import javax.swing.AbstractAction
-import javax.swing.DefaultListModel
-import javax.swing.JButton
-import javax.swing.JComboBox
-import javax.swing.JDialog
-import javax.swing.JList
-import javax.swing.JPanel
-import javax.swing.JProgressBar
-import javax.swing.JScrollPane
-import javax.swing.JTabbedPane
-import javax.swing.JTextField
-import javax.swing.JTextPane
-import javax.swing.JTree
+import javax.swing.*
 import javax.swing.event.TreeExpansionEvent
 import javax.swing.event.TreeWillExpandListener
 import javax.swing.tree.DefaultMutableTreeNode
@@ -31,8 +20,8 @@ import kotlin.concurrent.thread
 
 class Analyzer : JTabbedPane() {
     val analyses = hashMapOf<String, FullScanTextOutput.JavaType>()
-    val owners = hashMapOf<String, Set<String>>()
-    val ownersTiny = hashMapOf<String, Set<String>>()
+    val alreadyFullScan = hashSetOf<String>()
+    val owners = hashMapOf<String, HashSet<String>>()
     val root = DefaultMutableTreeNode()
     val openedAnalyses = hashSetOf<String>()
 
@@ -114,6 +103,20 @@ class Analyzer : JTabbedPane() {
                                 }
                             }
                         }
+                    } else if(e.button == 3) {
+                        val path = getPathForLocation(e.x, e.y) ?: return
+                        if(path.pathCount != 2) return
+                        val node = (path.lastPathComponent as? HasUsageNode) ?: return
+                        val menu = JPopupMenu()
+                        menu.invoker = tree
+                        menu.setLocation(e.xOnScreen, e.yOnScreen)
+                        menu.add(object : AbstractAction("Remove") {
+                            override fun actionPerformed(e: ActionEvent) {
+                                node.removeFromParent()
+                                (tree.model as? DefaultTreeModel)?.nodeStructureChanged(root)
+                            }
+                        })
+                        menu.isVisible = true
                     }
                 }
             })
@@ -122,9 +125,7 @@ class Analyzer : JTabbedPane() {
     }
 
     fun scanJar(path: String, filter: String = "") {
-        if(owners.contains(path)) return
-        if(filter != "")
-            owners[path] = setOf()
+        if(path in alreadyFullScan) return
 
         pane.text = ""
         dialog.isVisible = true
@@ -142,9 +143,11 @@ class Analyzer : JTabbedPane() {
             var system = NoRetryMetadataSystem(typeLoader)
             counter = 0
             val opt = DecompilationOptions()
-            val settings = MainWindow.settings
-            val lang = settings.language
+            val settings = opt.settings
+            val lang = BytecodeLanguage()
+            settings.language = lang
             val textOutput = FullScanTextOutput()
+            val owner = owners[path]
             for(entry in jar.entries()) {
                 if(stop) break
                 var name = entry.realName
@@ -154,15 +157,21 @@ class Analyzer : JTabbedPane() {
                     name = name.substring(1)
                 if(!entry.isDirectory && name.endsWith(".class") && (filter == "" || name.startsWith(filter))) {
                     name = name.split(".")[0]
-                    if(name in ownersTiny) continue
                     pane.document.insertString(0, "analyzing $name\n", null)
                     if(pane.document.length > 15000) {
                         pane.document.remove(10000, pane.document.length - 10000)
                     }
                     dialog.pack()
+                    if(owner?.contains(path) == true) continue
+
                     val ref = system.lookupType(name)
                     val resolve = ref.resolve()
-                    lang.decompileType(resolve, textOutput, opt)
+                    try {
+                        lang.decompileType(resolve, textOutput, opt)
+                    } catch (e: Exception) {
+                        println("Error on: $name")
+                        e.printStackTrace()
+                    }
 
                     if(counter++ % 100 == 0) {
                         system = NoRetryMetadataSystem(typeLoader)
@@ -176,7 +185,7 @@ class Analyzer : JTabbedPane() {
     }
 
     fun addScanResult(jarPath: String, result: Map<String, FullScanTextOutput.JavaType>) {
-        owners[jarPath] = result.keys
+        owners.computeIfAbsent(jarPath) { hashSetOf() }.addAll(result.keys)
         result.forEach { (t, u) ->
             if(t in analyses) return@forEach
             analyses[t] = u

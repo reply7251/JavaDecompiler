@@ -368,7 +368,7 @@ class FullScanTextOutput : PlainTextOutput(Writer.nullWriter()) {
         lastKeyword = text
     }
 
-    override fun writeDefinition(text: String, definition: Any, isLocal: Boolean) {
+    override fun writeDefinition(text: String, definition: Any?, isLocal: Boolean) {
         lastKeyword = ""
         (definition as? MethodReference)?.let {
             val type = getType(it.declaringType.fullName.replace(".", "/"))
@@ -387,7 +387,7 @@ class FullScanTextOutput : PlainTextOutput(Writer.nullWriter()) {
         super.writeDefinition(text, definition, isLocal)
     }
 
-    override fun writeReference(text: String?, reference: Any) {
+    override fun writeReference(text: String?, reference: Any?) {
         (reference as? MethodReference)?.let {
             val type = getType(it.declaringType.fullName.replace(".", "/"))
             val ref = "${it.name} ${it.signature}"
