@@ -27,7 +27,7 @@ object MainWindow : JFrame() {
         val pane = JSplitPane()
         val pane2 = JSplitPane(JSplitPane.VERTICAL_SPLIT)
         pane2.leftComponent = sourceViewer
-        pane2.rightComponent = JScrollPane(analyzer)
+        pane2.rightComponent = analyzer
         pane2.dividerLocation = 450
         pane.rightComponent = pane2
         pane.leftComponent = JScrollPane(fileTree)

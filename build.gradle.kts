@@ -17,6 +17,7 @@ dependencies {
     implementation("org.bitbucket.mstrobel:procyon-core:0.6.0")
     implementation("org.bitbucket.mstrobel:procyon-compilertools:0.6.0")
     implementation("com.formdev:flatlaf:3.5.4")
+    implementation("org.ow2.asm:asm:9.7.1")
 }
 
 tasks.test {
@@ -41,4 +42,5 @@ tasks.withType<Jar> {
     manifest {
         attributes["Main-Class"] = "me.hellrevenger.javadecompiler.MainKt"
     }
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
 }

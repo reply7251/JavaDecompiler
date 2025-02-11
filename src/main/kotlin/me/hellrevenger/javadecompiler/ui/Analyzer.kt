@@ -112,6 +112,7 @@ class Analyzer : JTabbedPane() {
                         menu.setLocation(e.xOnScreen, e.yOnScreen)
                         menu.add(object : AbstractAction("Remove") {
                             override fun actionPerformed(e: ActionEvent) {
+                                openedAnalyses.remove(node.target.toString())
                                 node.removeFromParent()
                                 (tree.model as? DefaultTreeModel)?.nodeStructureChanged(root)
                             }
@@ -121,7 +122,7 @@ class Analyzer : JTabbedPane() {
                 }
             })
         }
-        add("Analyze", tree)
+        add("Analyze", JScrollPane(tree))
     }
 
     fun scanJar(path: String, filter: String = "") {
@@ -196,27 +197,23 @@ class Analyzer : JTabbedPane() {
         val href = if(href.startsWith("!")) href.substring(1) else href
         if(href in openedAnalyses) return
         openedAnalyses.add(href)
-
-        if("." in href) {
+        val node = if("." in href) {
             val split = href.split(".")
             val type = split[0]
             val name = split[1]
-            println("type: $type, name: $name")
             if(name.contains(" ")) {
-                analyses[type]?.methods?.get(name)?.let {
-                    root.add(HasUsageNode(it))
-                }
+                analyses[type]?.methods
             } else {
-                analyses[type]?.fields?.get(name)?.let {
-                    root.add(HasUsageNode(it))
-                }
-            }
+                analyses[type]?.fields
+            }?.get(name)
         } else {
-            analyses[href]?.let {
-                root.add(HasUsageNode(it))
-            }
+            analyses[href]
+        }?.let { HasUsageNode(it) }
+        node?.let {
+            val m = (tree.model as? DefaultTreeModel) ?: return@let
+            root.add(it)
+            m.nodeStructureChanged(root)
         }
-        (model as? DefaultTreeModel)?.nodeStructureChanged(root)
         tree.expandRow(0)
     }
 }
