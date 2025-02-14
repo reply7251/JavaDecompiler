@@ -195,9 +195,9 @@ class Analyzer : JTabbedPane() {
 
     fun analyze(href: String) {
         val href = if(href.startsWith("!")) href.substring(1) else href
+        val m = (tree.model as? DefaultTreeModel) ?: return
         if(href in openedAnalyses) return
-        openedAnalyses.add(href)
-        val node = if("." in href) {
+        if("." in href) {
             val split = href.split(".")
             val type = split[0]
             val name = split[1]
@@ -208,10 +208,9 @@ class Analyzer : JTabbedPane() {
             }?.get(name)
         } else {
             analyses[href]
-        }?.let { HasUsageNode(it) }
-        node?.let {
-            val m = (tree.model as? DefaultTreeModel) ?: return@let
-            root.add(it)
+        }?.let {
+            openedAnalyses.add(href)
+            root.add(HasUsageNode(it))
             m.nodeStructureChanged(root)
         }
         tree.expandRow(0)
