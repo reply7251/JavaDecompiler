@@ -5,10 +5,7 @@ import com.strobel.decompiler.DecompilationOptions
 import com.strobel.decompiler.languages.BytecodeLanguage
 import me.hellrevenger.javadecompiler.decompiler.FullScanTextOutput
 import me.hellrevenger.javadecompiler.decompiler.NoRetryMetadataSystem
-import java.awt.Dimension
-import java.awt.GridBagConstraints
-import java.awt.GridBagLayout
-import java.awt.Insets
+import java.awt.*
 import java.awt.event.*
 import java.util.jar.JarFile
 import javax.swing.*
@@ -25,28 +22,38 @@ class Analyzer : JTabbedPane() {
     val root = DefaultMutableTreeNode()
     val openedAnalyses = hashSetOf<String>()
 
-    val tree: JTree
-    val dialog: JDialog
-    val pane: JTextPane
-    val bar: JProgressBar
+    val tree: JTree = JTree()
+    val dialog: JDialog = JDialog()
+    val pane: JTextPane = JTextPane()
+    val bar: JProgressBar = JProgressBar()
     var stop = false
-    val stopButton:JButton
+    val stopButton: JButton = JButton(object : AbstractAction("Stop") {
+        override fun actionPerformed(e: ActionEvent?) {
+            stop = true
+        }
+    })
+    val notify = JDialog()
 
     init {
-        tree = JTree()
-
-        dialog = JDialog()
-        pane = JTextPane()
-        bar = JProgressBar()
-        stopButton = JButton(object : AbstractAction("Stop") {
-            override fun actionPerformed(e: ActionEvent?) {
-                stop = true
-            }
-        })
-
+        initNotify()
         initScanDialog()
         initTree()
         addTab("Search", JScrollPane(SearchGlobal()))
+    }
+
+    fun initNotify() {
+        val label = JLabel("You haven't scan for this node")
+
+        label.border = BorderFactory.createEmptyBorder(10,10,10,10)
+        notify.add(label)
+        notify.pack()
+        notify.addFocusListener(object : FocusListener {
+            override fun focusGained(e: FocusEvent?) { }
+            override fun focusLost(e: FocusEvent?) {
+                notify.isVisible = false
+            }
+        })
+        Utils.setToCenter(notify)
     }
 
     fun initScanDialog() {
@@ -197,6 +204,7 @@ class Analyzer : JTabbedPane() {
         val href = if(href.startsWith("!")) href.substring(1) else href
         val m = (tree.model as? DefaultTreeModel) ?: return
         if(href in openedAnalyses) return
+        var success = false
         if("." in href) {
             val split = href.split(".")
             val type = split[0]
@@ -209,9 +217,14 @@ class Analyzer : JTabbedPane() {
         } else {
             analyses[href]
         }?.let {
-            openedAnalyses.add(href)
             root.add(HasUsageNode(it))
             m.nodeStructureChanged(root)
+            success = true
+        }
+        if(success) {
+            openedAnalyses.add(href)
+        } else {
+            notify.isVisible = true
         }
         tree.expandRow(0)
     }
