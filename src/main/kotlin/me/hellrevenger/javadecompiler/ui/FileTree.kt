@@ -1,10 +1,8 @@
 package me.hellrevenger.javadecompiler.ui
 
+import com.strobel.assembler.InputTypeLoader
 import com.strobel.assembler.metadata.JarTypeLoader
 import com.strobel.assembler.metadata.MetadataSystem
-import com.strobel.decompiler.DecompilationOptions
-import com.strobel.decompiler.DecompilerSettings
-import me.hellrevenger.javadecompiler.decompiler.LinkableTextOutput
 import java.awt.Color
 import java.awt.datatransfer.DataFlavor
 import java.awt.dnd.DnDConstants
@@ -26,13 +24,14 @@ import javax.swing.tree.MutableTreeNode
 val SUPPORT_FILES = arrayOf("jar", "class")
 
 class FileTree : JTree() {
-    val jars: Jars
+    val filesNode: FilesNode
     val systems = hashMapOf<String, MetadataSystem>()
+    val classFileSystem = MetadataSystem(InputTypeLoader())
 
     init {
         border = BorderFactory.createLineBorder(Color.GRAY)
-        jars = Jars()
-        model = DefaultTreeModel(jars)
+        filesNode = FilesNode()
+        model = DefaultTreeModel(filesNode)
 
         dropTarget = object : DropTarget(){
             override fun drop(event: DropTargetDropEvent) {
@@ -56,7 +55,9 @@ class FileTree : JTree() {
                     iterator.next()
                     iterator.next()
                     iterator.asSequence().joinToString("/")
-                } else return@forEachIndexed // wtf
+                } else {
+                    ((it.lastPathComponent as? DefaultMutableTreeNode)?.userObject as? ClassFileNode)?.file?.absolutePath ?: return@forEachIndexed
+                }
                 openClass(path)
             }
         }
@@ -64,25 +65,30 @@ class FileTree : JTree() {
         addMouseListener(FileMouseListener(this))
         addMouseMotionListener(ToolTipListener(this))
 
-        addFile(File("build/libs/JavaDecompiler-0.1.jar"))
+        addFile(File("build/libs/JavaDecompiler-0.1.1.jar"))
     }
 
     fun addFile(file: File) {
         if(!SUPPORT_FILES.contains(file.extension.lowercase()) || !file.exists()) return
         if(file.extension.lowercase() == "jar") {
-            if(!jars.addJar(file)) return
+            if(!filesNode.addJar(file)) return
 
             val system = MetadataSystem(JarTypeLoader(JarFile(file)))
             systems[file.absolutePath] = system
+        } else if (file.extension.lowercase() == "class") {
+            if(!filesNode.addClass(file)) return
         }
         expandRow(0)
-        (model as? DefaultTreeModel)?.nodeStructureChanged(jars)
+        (model as? DefaultTreeModel)?.nodeStructureChanged(filesNode)
     }
 
     fun openClass(path: String): JTextPane? {
         systems.forEach {
             val pane = MainWindow.sourceViewer.openClass(it.key, it.value, path)
             if(pane != null) return pane
+        }
+        if(path.lowercase().endsWith(".class")) {
+            return MainWindow.sourceViewer.openClass(path, classFileSystem, path)
         }
         return null
     }
@@ -135,10 +141,10 @@ class FileMouseListener(val tree: FileTree) : MouseListener {
                 menu.add("")
                 menu.add("").action = object : AbstractAction("Close") {
                     override fun actionPerformed(e: ActionEvent) {
-                        val abso = (it.userObject as? JarNode)?.getPath() ?: return
+                        val abso = (it.userObject as? ClassFileNode)?.file?.absolutePath ?: (it.userObject as? JarNode)?.getPath() ?: return
                         MainWindow.sourceViewer.onFileRemoved(abso)
-                        tree.jars.removeJar(abso)
-                        (tree.model as? DefaultTreeModel)?.nodeStructureChanged(tree.jars)
+                        tree.filesNode.removeFile(abso)
+                        (tree.model as? DefaultTreeModel)?.nodeStructureChanged(tree.filesNode)
                     }
                 }
                 menu.isVisible = true

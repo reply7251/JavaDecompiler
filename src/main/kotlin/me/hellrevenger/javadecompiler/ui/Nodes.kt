@@ -2,11 +2,9 @@ package me.hellrevenger.javadecompiler.ui
 
 import me.hellrevenger.javadecompiler.decompiler.FullScanTextOutput
 import java.io.File
-import java.util.*
 import java.util.jar.JarFile
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.MutableTreeNode
-import javax.swing.tree.TreeNode
 
 fun <K: Comparable<K>,V> Map<K,V>.sortByKey() = this.toList().sortedBy { it.first }.map { it.second }
 
@@ -14,13 +12,15 @@ abstract class Node(val node: MutableTreeNode) {
     abstract fun getChildren(): List<Node>
 }
 
-class ClassNode(val name: String, node: MutableTreeNode) : Node(node) {
+open class ClassNode(val name: String, node: MutableTreeNode) : Node(node) {
     override fun getChildren(): List<Node> {
         return emptyList()
     }
 
     override fun toString() = name
 }
+
+class ClassFileNode(val file: File, node: MutableTreeNode) : ClassNode(file.name, node)
 
 open class PackageNode(val name: String, node: MutableTreeNode) : Node(node) {
     val packages = hashMapOf<String, PackageNode>()
@@ -97,7 +97,7 @@ class JarNode(val file: File, node: MutableTreeNode) : PackageNode("", node) {
     override fun toString() = file.name
 }
 
-class Jars : DefaultMutableTreeNode() {
+class FilesNode : DefaultMutableTreeNode() {
     val models = mutableMapOf<String, Node>()
     fun getChildren() = models.values.toList()
 
@@ -112,9 +112,19 @@ class Jars : DefaultMutableTreeNode() {
         return true
     }
 
-    fun removeJar(file: String) {
-        val jar = models.remove(file) ?: return
-        remove(jar.node)
+    fun removeFile(file: String) {
+        val jarOrClass = models.remove(file) ?: return
+        remove(jarOrClass.node)
+    }
+
+    fun addClass(file: File): Boolean {
+        if(file.absolutePath in models) return false
+        val classNode = DefaultMutableTreeNode()
+        val theClass = ClassFileNode(file, classNode)
+        classNode.userObject = theClass
+        models[file.absolutePath] = theClass
+        insert(classNode, 0)
+        return true
     }
 
     override fun toString(): String {
