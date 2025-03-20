@@ -33,6 +33,8 @@ class Analyzer : JTabbedPane() {
         }
     })
     val notify = JDialog()
+    val notifyLabel = JTextArea()
+    val NOT_SCANNED = "You haven't scan for this node:\n"
 
     init {
         initNotify()
@@ -42,10 +44,10 @@ class Analyzer : JTabbedPane() {
     }
 
     fun initNotify() {
-        val label = JLabel("You haven't scan for this node")
-
-        label.border = BorderFactory.createEmptyBorder(10,10,10,10)
-        notify.add(label)
+        notifyLabel.isEnabled = false
+        notifyLabel.text = NOT_SCANNED
+        notifyLabel.border = BorderFactory.createEmptyBorder(10,10,10,10)
+        notify.add(notifyLabel)
         notify.pack()
         notify.addFocusListener(object : FocusListener {
             override fun focusGained(e: FocusEvent?) { }
@@ -98,20 +100,27 @@ class Analyzer : JTabbedPane() {
             addMouseListener(object : MouseAdapter() {
                 override fun mouseClicked(e: MouseEvent) {
                     if(e.clickCount == 2) {
-                        val path = getPathForLocation(e.x, e.y) ?: return
+                        val path = getClosestPathForLocation(e.x, e.y) ?: return
                         (path.lastPathComponent as? HasUsageNode)?.let {
                             val description = it.target.toString()
                             val delimiter = description.indexOf(".")
                             val className = if(delimiter == -1) description else description.substring(0, delimiter)
-                            MainWindow.fileTree.openClass(className)?.let { pane ->
-                                (it.parent?.parent as? HasUsageNode)?.target?.toString()?.let {  target ->
-                                    val from = "!$description"
-                                    MainWindow.sourceViewer.searchHref(target, from)
+                            waitCursor {
+                                MainWindow.fileTree.openClass(className)?.let { pane ->
+                                    val node = (it.parent?.parent as? HasUsageNode) ?: it
+                                    node.target.toString().let {  target ->
+                                        val from = "!$description"
+                                        if(node == it) {
+                                            MainWindow.sourceViewer.searchHref(from)
+                                        } else {
+                                            MainWindow.sourceViewer.searchHref(target, from)
+                                        }
+                                    }
                                 }
                             }
                         }
                     } else if(e.button == 3) {
-                        val path = getPathForLocation(e.x, e.y) ?: return
+                        val path = getClosestPathForLocation(e.x, e.y) ?: return
                         if(path.pathCount != 2) return
                         val node = (path.lastPathComponent as? HasUsageNode) ?: return
                         val menu = JPopupMenu()
@@ -224,6 +233,8 @@ class Analyzer : JTabbedPane() {
         if(success) {
             openedAnalyses.add(href)
         } else {
+            notifyLabel.text = NOT_SCANNED + href
+            notify.pack()
             notify.isVisible = true
         }
         tree.expandRow(0)
@@ -233,6 +244,9 @@ class Analyzer : JTabbedPane() {
 class SearchGlobal : JPanel() {
     val list = JList<Link>()
     val comboBox = JComboBox<String>()
+    val inputSearch = JTextField()
+
+    val SEARCH_USED = "Used"
 
     init {
         layout = GridBagLayout()
@@ -240,7 +254,6 @@ class SearchGlobal : JPanel() {
         gbc.fill = GridBagConstraints.BOTH
         gbc.insets = Insets(5,5,5,5)
 
-        val inputSearch = JTextField()
         initSearchInput(inputSearch)
         initList()
         initComboBox()
@@ -281,8 +294,13 @@ class SearchGlobal : JPanel() {
                 val description = if(href.startsWith("!")) href.substring(1) else href
                 val delimiter = description.indexOf(".")
                 val className = if(delimiter == -1) description else description.substring(0, delimiter)
-                MainWindow.fileTree.openClass(className)?.let { pane ->
-                    MainWindow.sourceViewer.searchHref(href)
+                if(comboBox.selectedItem?.toString() == SEARCH_USED) {
+                    MainWindow.analyzer.analyze(href)
+                    MainWindow.analyzer.selectedIndex = MainWindow.analyzer.indexOfTab("Analyze")
+                } else {
+                    MainWindow.fileTree.openClass(className)?.let { pane ->
+                        MainWindow.sourceViewer.searchHref(href)
+                    }
                 }
             }
         })
@@ -295,26 +313,53 @@ class SearchGlobal : JPanel() {
         comboBox.addItem("Method/Field")
         comboBox.addItem("Method")
         comboBox.addItem("Field")
+        comboBox.addItem(SEARCH_USED)
+
+        comboBox.addActionListener {
+            search(inputSearch.text)
+        }
     }
 
     fun search(text: String) {
+        if(text.isEmpty()) return
         val model = list.model as? DefaultListModel ?: return
         model.clear()
+        val used = hashSetOf<String>()
         MainWindow.analyzer.analyses.forEach { (t, u) ->
             val searchType = comboBox.selectedItem?.toString() ?: return@forEach
-            if(searchType.contains("Type") && t.contains(text, true)) {
+            if(searchType.contains("Type") && t.contains(text, true) && u.uses.isNotEmpty()) {
                 model.add(model.size, Link(t, "!$t"))
             }
             if(searchType.contains("Method")) {
                 u.methods.forEach { (t, u) ->
-                    if(t.contains(text, true))
-                        model.add(model.size, Link(u.toString().split(" ")[0] + "()", "!$u"))
+                    if(t.contains(text, true) && u.uses.isNotEmpty()) {
+                        val display = u.toString().split(" ")[0] + "()"
+                        model.add(model.size, Link(display, "!$u"))
+                        used.add(display)
+                    }
                 }
             }
             if(searchType.contains("Field")) {
                 u.fields.forEach { (t, u) ->
-                    if(t.contains(text, true))
-                        model.add(model.size, Link(u.toString(), "!$u"))
+                    if(t.contains(text, true) && u.uses.isNotEmpty()) {
+                        val display = u.toString()
+                        model.add(model.size, Link(display, "!$u"))
+                        used.add(display)
+                    }
+                }
+            }
+            if(searchType.contains(SEARCH_USED)) {
+                u.fields.forEach { (t, u) ->
+                    val display = u.toString()
+                    if(t.contains(text, true) && !used.contains(display)) {
+                        model.add(model.size, Link(display, "!$u"))
+                    }
+                }
+                u.methods.forEach { (t, u) ->
+                    val display = u.toString().split(" ")[0] + "()"
+                    if(t.contains(text, true) && !used.contains(display)) {
+                        model.add(model.size, Link(display, "!$u"))
+                    }
                 }
             }
         }

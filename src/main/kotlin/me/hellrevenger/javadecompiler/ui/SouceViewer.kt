@@ -113,13 +113,17 @@ class SouceViewer : JTabbedPane(), Searchable {
         getTextPane()?.let { pane ->
             val source = pane.document.getText(0, pane.document.length)
             val regexOptions = mutableSetOf<RegexOption>()
-            if(!config.regex) regexOptions.add(RegexOption.LITERAL)
+            var searchText = text
+            if(!config.regex) {
+                regexOptions.add(RegexOption.LITERAL)
+                searchText = searchText.replace("$", "\\$")
+            }
             if(!config.matchCase) regexOptions.add(RegexOption.IGNORE_CASE)
-            RegexOption.DOT_MATCHES_ALL
+
             val regex = if(config.matchCase) {
-                text.toRegex()
+                searchText.toRegex()
             } else {
-                text.toRegex(RegexOption.IGNORE_CASE)
+                searchText.toRegex(RegexOption.IGNORE_CASE)
             }
             var result = regex.find(source, pane.selectionEnd)
             if(result == null) result = regex.find(source, 0)

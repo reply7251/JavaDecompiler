@@ -58,7 +58,9 @@ class FileTree : JTree() {
                 } else {
                     ((it.lastPathComponent as? DefaultMutableTreeNode)?.userObject as? ClassFileNode)?.file?.absolutePath ?: return@forEachIndexed
                 }
-                openClass(path)
+                waitCursor {
+                    openClass(path)
+                }
             }
         }
         addTreeExpansionListener(ExpansionListener())
@@ -124,7 +126,7 @@ class ToolTipListener(val tree: FileTree) : MouseMotionListener {
 class FileMouseListener(val tree: FileTree) : MouseListener {
     override fun mouseClicked(e: MouseEvent) {
         if(e.button != 3) return
-        val row = tree.getRowForLocation(e.x, e.y)
+        val row = tree.getClosestRowForLocation(e.x, e.y)
         if(row == -1) return
         val path = tree.getPathForRow(row)
         if(path.pathCount == 2) {
