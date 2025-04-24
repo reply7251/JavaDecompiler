@@ -5,6 +5,7 @@ import com.strobel.decompiler.DecompilationOptions
 import com.strobel.decompiler.languages.BytecodeLanguage
 import me.hellrevenger.javadecompiler.decompiler.FullScanTextOutput
 import me.hellrevenger.javadecompiler.decompiler.NoRetryMetadataSystem
+import me.hellrevenger.javadecompiler.decompiler.UsageScanTextOutput
 import java.awt.*
 import java.awt.event.*
 import java.util.jar.JarFile
@@ -16,11 +17,16 @@ import javax.swing.tree.DefaultTreeModel
 import kotlin.concurrent.thread
 
 class Analyzer : JTabbedPane() {
-    val analyses = hashMapOf<String, FullScanTextOutput.JavaType>()
+    val analyses = hashMapOf<String, UsageScanTextOutput.JavaType>()
     val alreadyFullScan = hashSetOf<String>()
     val owners = hashMapOf<String, HashSet<String>>()
     val root = DefaultMutableTreeNode()
     val openedAnalyses = hashSetOf<String>()
+
+    val markAsScanJar = hashSetOf<String>()
+    val markAsScan = hashMapOf<String, HashSet<String>>()
+    var scanning = false
+    var autoScanningAll = false
 
     val tree: JTree = JTree()
     val dialog: JDialog = JDialog()
@@ -36,11 +42,13 @@ class Analyzer : JTabbedPane() {
     val notifyLabel = JTextArea()
     val NOT_SCANNED = "You haven't scan for this node:\n"
 
+    val searchGlobal = SearchGlobal()
+
     init {
         initNotify()
         initScanDialog()
         initTree()
-        addTab("Search", JScrollPane(SearchGlobal()))
+        addTab("Search", JScrollPane(searchGlobal))
     }
 
     fun initNotify() {
@@ -79,7 +87,7 @@ class Analyzer : JTabbedPane() {
         gbc.gridwidth = 1
 
         dialog.pack()
-        dialog.isAlwaysOnTop = true
+        dialog.defaultCloseOperation = WindowConstants.DO_NOTHING_ON_CLOSE
 
         Utils.setToCenter(dialog)
     }
@@ -141,11 +149,11 @@ class Analyzer : JTabbedPane() {
         add("Analyze", JScrollPane(tree))
     }
 
-    fun scanJar(path: String, filter: String = "") {
+    fun scanJar(path: String, filter: String = "", joined: Boolean = false) {
         if(path in alreadyFullScan) return
 
-        pane.text = ""
         dialog.isVisible = true
+        stop = false
 
         val jar = JarFile(path)
         var counter = 0
@@ -155,7 +163,7 @@ class Analyzer : JTabbedPane() {
         bar.maximum = counter
         bar.value = 0
 
-        thread {
+        val callback = {
             val typeLoader = JarTypeLoader(jar)
             var system = NoRetryMetadataSystem(typeLoader)
             counter = 0
@@ -165,7 +173,7 @@ class Analyzer : JTabbedPane() {
             settings.language = lang
             val textOutput = FullScanTextOutput()
             val owner = owners[path]
-            for(entry in jar.entries()) {
+            for (entry in jar.entries()) {
                 if(stop) break
                 var name = entry.realName
                 if(name.endsWith("/"))
@@ -179,65 +187,175 @@ class Analyzer : JTabbedPane() {
                         pane.document.remove(10000, pane.document.length - 10000)
                     }
                     dialog.pack()
-                    if(owner?.contains(path) == true) continue
+                    if(owner?.contains(name) == true) continue
 
                     val ref = system.lookupType(name)
                     val resolve = ref.resolve()
                     try {
                         lang.decompileType(resolve, textOutput, opt)
                     } catch (e: Exception) {
-                        println("Error on: $name")
+                        System.err.println("Error on: $name")
                         e.printStackTrace()
                     }
 
                     if(counter++ % 100 == 0) {
                         system = NoRetryMetadataSystem(typeLoader)
+                        updateScan()
                     }
                 }
                 bar.value++
             }
+            if(counter > 0) {
+                updateScan()
+            }
             addScanResult(path, textOutput.types)
             dialog.isVisible = false
+            if(filter == "" && !stop) {
+                alreadyFullScan.add(path)
+            }
+        }
+        if (joined) {
+            callback()
+        } else {
+            thread {
+                callback()
+            }
         }
     }
 
-    fun addScanResult(jarPath: String, result: Map<String, FullScanTextOutput.JavaType>) {
-        owners.computeIfAbsent(jarPath) { hashSetOf() }.addAll(result.keys)
-        result.forEach { (t, u) ->
-            if(t in analyses) return@forEach
-            analyses[t] = u
+    fun updateScan() {
+        root.children().asIterator().forEach {
+            (it as? HasUsageNode)?.reload()
         }
+        searchGlobal.search()
+    }
+
+    fun addScanResult(jarPath: String, result: Map<String, UsageScanTextOutput.JavaType>) {
+        owners.computeIfAbsent(jarPath) { hashSetOf() }.addAll(result.keys)
+    }
+
+    fun hasMarkScan(path: String, filter: String) =
+        if(filter == "") {
+            markAsScanJar.contains(path)
+        } else {
+            markAsScan[path]?.contains(filter) == true
+        }
+
+    fun markScan(path: String, filter: String) {
+        if(filter == "") {
+            synchronized(markAsScanJar) {
+                markAsScanJar.add(path)
+            }
+        } else {
+            synchronized(markAsScan) {
+                markAsScan.computeIfAbsent(path) { hashSetOf() }.add(filter)
+            }
+        }
+    }
+
+    fun unmarkScan(path: String, filter: String) {
+        if(filter == "") {
+            synchronized(markAsScanJar) {
+                markAsScanJar.remove(path)
+            }
+        } else {
+            synchronized(markAsScan) {
+                markAsScan[path]?.remove(filter)
+            }
+        }
+    }
+
+    fun markScanForType(type: String) {
+        val index = type.lastIndexOf("/")
+        if(index == -1) return
+        val name = type.substring(0, index)
+        MainWindow.fileTree.filesNode.models.forEach {  (_, node) ->
+            (node as? JarNode)?.let {
+                markScan(it.getPath(), name)
+            }
+        }
+    }
+
+    fun scan() {
+        synchronized(this) {
+            if(scanning) return
+            scanning = true
+
+            thread {
+                while (!stop && (markAsScan.isNotEmpty() || markAsScanJar.isNotEmpty())) {
+                    if(markAsScan.isNotEmpty()) {
+                        val toScan = mutableListOf<Pair<String, List<String>>>()
+                        synchronized(markAsScan) {
+                            markAsScan.entries.forEach { (jar, filters) ->
+                                toScan.add(jar to filters.toList())
+                            }
+                            markAsScan.clear()
+                        }
+                        toScan.forEach { (jar, filters) ->
+                            filters.forEach { filter ->
+                                scanJar(jar, filter, joined = true)
+                            }
+                        }
+                    } else {
+                        val toScan = mutableListOf<String>()
+                        synchronized(markAsScanJar) {
+                            toScan.addAll(markAsScanJar)
+                            markAsScanJar.clear()
+                        }
+                        toScan.forEach {
+                            scanJar(it, joined = true)
+                        }
+                    }
+                }
+                autoScanAll()
+                scanning = false
+            }
+        }
+    }
+
+    fun autoScanAll() {
+        if(autoScanningAll) return
+        autoScanningAll = true
+        MainWindow.fileTree.filesNode.models.any {  (_, node) ->
+            if(stop) return@any true
+            (node as? JarNode)?.let {
+                scanJar(it.getPath(), joined = true)
+            }
+            false
+        }
+        autoScanningAll = false
     }
 
     fun analyze(href: String) {
         val href = if(href.startsWith("!")) href.substring(1) else href
         val m = (tree.model as? DefaultTreeModel) ?: return
         if(href in openedAnalyses) return
-        var success = false
         if("." in href) {
             val split = href.split(".")
             val type = split[0]
             val name = split[1]
+
+            markScanForType(type)
+
             if(name.contains(" ")) {
                 analyses[type]?.methods
             } else {
                 analyses[type]?.fields
             }?.get(name)
         } else {
+            markScanForType(href)
+
             analyses[href]
         }?.let {
             root.add(HasUsageNode(it))
             m.nodeStructureChanged(root)
-            success = true
-        }
-        if(success) {
             openedAnalyses.add(href)
-        } else {
-            notifyLabel.text = NOT_SCANNED + href
-            notify.pack()
-            notify.isVisible = true
         }
-        tree.expandRow(0)
+        scan()
+        if(!tree.isExpanded(0))
+            tree.expandRow(0)
+
+        selectedIndex = indexOfTab("Analyze")
     }
 }
 
@@ -277,7 +395,7 @@ class SearchGlobal : JPanel() {
     fun initSearchInput(input: JTextField) {
         input.action = object : AbstractAction() {
             override fun actionPerformed(e: ActionEvent?) {
-                search(input.text)
+                search()
             }
         }
     }
@@ -314,17 +432,23 @@ class SearchGlobal : JPanel() {
         comboBox.addItem("Method")
         comboBox.addItem("Field")
         comboBox.addItem(SEARCH_USED)
-
         comboBox.addActionListener {
-            search(inputSearch.text)
+            search()
         }
     }
 
-    fun search(text: String) {
+    fun search() {
+        val text = inputSearch.text
         if(text.isEmpty()) return
         val model = list.model as? DefaultListModel ?: return
         model.clear()
         val used = hashSetOf<String>()
+        val results = mutableListOf<Link>()
+
+        synchronized(MainWindow.analyzer) {
+            MainWindow.analyzer.scan()
+        }
+
         MainWindow.analyzer.analyses.forEach { (t, u) ->
             val searchType = comboBox.selectedItem?.toString() ?: return@forEach
             if(searchType.contains("Type") && t.contains(text, true) && u.uses.isNotEmpty()) {
@@ -334,7 +458,7 @@ class SearchGlobal : JPanel() {
                 u.methods.forEach { (t, u) ->
                     if(t.contains(text, true) && u.uses.isNotEmpty()) {
                         val display = u.toString().split(" ")[0] + "()"
-                        model.add(model.size, Link(display, "!$u"))
+                        results.add(Link(display, "!$u"))
                         used.add(display)
                     }
                 }
@@ -343,7 +467,7 @@ class SearchGlobal : JPanel() {
                 u.fields.forEach { (t, u) ->
                     if(t.contains(text, true) && u.uses.isNotEmpty()) {
                         val display = u.toString()
-                        model.add(model.size, Link(display, "!$u"))
+                        results.add(Link(display, "!$u"))
                         used.add(display)
                     }
                 }
@@ -352,17 +476,18 @@ class SearchGlobal : JPanel() {
                 u.fields.forEach { (t, u) ->
                     val display = u.toString()
                     if(t.contains(text, true) && !used.contains(display)) {
-                        model.add(model.size, Link(display, "!$u"))
+                        results.add(Link(display, "!$u"))
                     }
                 }
                 u.methods.forEach { (t, u) ->
                     val display = u.toString().split(" ")[0] + "()"
                     if(t.contains(text, true) && !used.contains(display)) {
-                        model.add(model.size, Link(display, "!$u"))
+                        results.add(Link(display, "!$u"))
                     }
                 }
             }
         }
+        model.addAll(model.size(), results.sortedBy { it.toString() })
     }
 
     class Link(val display: String, val description: String) {

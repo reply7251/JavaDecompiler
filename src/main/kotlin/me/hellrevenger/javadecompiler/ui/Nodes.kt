@@ -1,6 +1,6 @@
 package me.hellrevenger.javadecompiler.ui
 
-import me.hellrevenger.javadecompiler.decompiler.FullScanTextOutput
+import me.hellrevenger.javadecompiler.decompiler.UsageScanTextOutput
 import java.io.File
 import java.util.jar.JarFile
 import javax.swing.tree.DefaultMutableTreeNode
@@ -132,20 +132,34 @@ class FilesNode : DefaultMutableTreeNode() {
     }
 }
 
-class HasUsageNode(val target: FullScanTextOutput.HasUsage) : DefaultMutableTreeNode(target) {
+class HasUsageNode(val target: UsageScanTextOutput.HasUsage) : DefaultMutableTreeNode(target) {
+    val uses = LazyNode({ node ->
+        if(node.cachedChildCount != target.uses.size) {
+            node.removeAllChildren()
+            target.uses.toList().sortedBy { it.toString() }.forEach {
+                node.add(HasUsageNode(it))
+            }
+        }
+        target.uses.size
+    }, "uses")
+    val usedBy = LazyNode({ node ->
+        if(node.cachedChildCount != target.usedBy.size) {
+            node.removeAllChildren()
+            target.usedBy.toList().sortedBy { it.toString() }.forEach {
+                node.add(HasUsageNode(it))
+            }
+        }
+        target.usedBy.size
+    }, "used by")
+
     init {
-        val uses = LazyNode({ node ->
-            target.uses.forEach {
-                node.add(HasUsageNode(it))
-            }
-        }, "uses")
-        val usedBy = LazyNode({ node ->
-            target.usedBy.forEach {
-                node.add(HasUsageNode(it))
-            }
-        }, "used by")
         insert(uses, childCount)
         insert(usedBy, childCount)
+    }
+
+    fun reload() {
+        uses.loadChildren()
+        uses.loadChildren()
     }
 
     override fun toString(): String {
@@ -155,13 +169,11 @@ class HasUsageNode(val target: FullScanTextOutput.HasUsage) : DefaultMutableTree
     }
 }
 
-class LazyNode(val onLoad: (LazyNode) -> Unit, obj: Any? = null) : DefaultMutableTreeNode(obj) {
-    var loaded = false
+class LazyNode(val onLoad: (LazyNode) -> Int, obj: Any? = null) : DefaultMutableTreeNode(obj) {
+    var cachedChildCount = 0
 
     fun loadChildren() {
-        if(loaded) return
-        loaded = true
-        onLoad(this)
+        cachedChildCount = onLoad(this)
     }
 
     override fun isLeaf() = false

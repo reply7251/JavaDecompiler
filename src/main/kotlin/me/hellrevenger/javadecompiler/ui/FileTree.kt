@@ -66,8 +66,6 @@ class FileTree : JTree() {
         addTreeExpansionListener(ExpansionListener())
         addMouseListener(FileMouseListener(this))
         addMouseMotionListener(ToolTipListener(this))
-
-        addFile(File("build/libs/JavaDecompiler-0.1.1.jar"))
     }
 
     fun addFile(file: File) {
@@ -134,10 +132,12 @@ class FileMouseListener(val tree: FileTree) : MouseListener {
                 val menu = JPopupMenu()
                 menu.invoker = tree
                 menu.setLocation(e.xOnScreen, e.yOnScreen)
-                menu.add("").action = object : AbstractAction("Full Scan") {
-                    override fun actionPerformed(e: ActionEvent) {
-                        val abso = (it.userObject as? JarNode)?.getPath() ?: return
-                        MainWindow.analyzer.scanJar(abso)
+                (it.userObject as? JarNode)?.let {
+                    menu.add("").action = ScanAction(it, "")
+                    if(MainWindow.analyzer.hasMarkScan(it.getPath(), "")) {
+                        menu.add("").action = UnmarkScanAction(it, "")
+                    } else {
+                        menu.add("").action = MarkScanAction(it, "")
                     }
                 }
                 menu.add("")
@@ -161,10 +161,12 @@ class FileMouseListener(val tree: FileTree) : MouseListener {
                 val menu = JPopupMenu()
                 menu.invoker = tree
                 menu.setLocation(e.xOnScreen, e.yOnScreen)
-                menu.add("").action = object : AbstractAction("Scan") {
-                    override fun actionPerformed(e: ActionEvent) {
-                        val abso = (it.userObject as? JarNode)?.getPath() ?: return
-                        MainWindow.analyzer.scanJar(abso, path)
+                (it.userObject as? JarNode)?.let {
+                    menu.add("").action = ScanAction(it, path)
+                    if(MainWindow.analyzer.hasMarkScan(it.getPath(), path)) {
+                        menu.add("").action = UnmarkScanAction(it, path)
+                    } else {
+                        menu.add("").action = MarkScanAction(it, path)
                     }
                 }
                 menu.isVisible = true
@@ -182,5 +184,23 @@ class FileMouseListener(val tree: FileTree) : MouseListener {
     }
 
     override fun mouseExited(e: MouseEvent?) {
+    }
+
+    class ScanAction(val node: JarNode, val filter: String = "") : AbstractAction("Scan") {
+        override fun actionPerformed(e: ActionEvent) {
+            MainWindow.analyzer.scanJar(node.getPath(), filter)
+        }
+    }
+    class MarkScanAction(val node: JarNode, val filter: String = "")
+        : AbstractAction("Mark Scan") {
+        override fun actionPerformed(e: ActionEvent) {
+            MainWindow.analyzer.markScan(node.getPath(), filter)
+        }
+    }
+    class UnmarkScanAction(val node: JarNode, val filter: String = "")
+        : AbstractAction("Unmark Scan") {
+        override fun actionPerformed(e: ActionEvent) {
+            MainWindow.analyzer.unmarkScan(node.getPath(), filter)
+        }
     }
 }

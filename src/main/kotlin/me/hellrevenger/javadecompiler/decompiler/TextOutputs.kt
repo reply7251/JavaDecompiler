@@ -23,7 +23,7 @@ import javax.swing.text.html.StyleSheet
 
 val literalRegex = "[a-zA-Z_][\\w\$]*".toRegex()
 
-class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainTextOutput(Writer.nullWriter()), KeyEventDispatcher {
+class LinkableTextOutput(val className: String, val pane: JTextPane) : UsageScanTextOutput(), KeyEventDispatcher {
     companion object {
         val instances = mutableMapOf<String, LinkableTextOutput>()
 
@@ -226,8 +226,8 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
         if(hasHref) endHref()
     }
 
-    override fun writeReference(text: String?, reference: Any) {
-        val className = reference::class.java.simpleName
+    override fun writeReference(text: String?, reference: Any?) {
+        val className = reference!!::class.java.simpleName
         var processed = false
         var hasHref = false
         (reference as? MethodReference)?.let {
@@ -263,7 +263,7 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
         if(hasHref) endHref()
     }
 
-    override fun writeKeyword(text: String?) {
+    override fun writeKeyword(text: String) {
         span("keyword")
         literal = false
         super.writeKeyword(text)
@@ -351,24 +351,26 @@ class LinkableTextOutput(val className: String, val pane: JTextPane) : PlainText
     }
 }
 
-class FullScanTextOutput : PlainTextOutput(Writer.nullWriter()) {
+abstract class UsageScanTextOutput : PlainTextOutput(Writer.nullWriter()) {
     var currentUsage : HasUsage? = null
     val types = hashMapOf<String, JavaType>()
     var lastKeyword = ""
 
-    fun getType(name: String) = types.computeIfAbsent(name) { JavaType(name) }
+    fun getType(name: String) = types.computeIfAbsent(name) { MainWindow.analyzer.analyses.computeIfAbsent(name) { JavaType(name) } }
 
     override fun write(text: String) {
         if(text == "{" && lastKeyword == "static") {
             currentUsage = null
         }
+        super.write(text)
     }
 
     override fun writeKeyword(text: String) {
         lastKeyword = text
+        super.writeKeyword(text)
     }
 
-    override fun writeDefinition(text: String, definition: Any?, isLocal: Boolean) {
+    override fun writeDefinition(text: String, definition: Any, isLocal: Boolean) {
         lastKeyword = ""
         (definition as? MethodReference)?.let {
             val type = getType(it.declaringType.internalName)
@@ -382,7 +384,9 @@ class FullScanTextOutput : PlainTextOutput(Writer.nullWriter()) {
         }
         (definition as? TypeDefinition)?.let {
             val def = it.internalName
-            currentUsage = getType(def)
+            val type = getType(def)
+            type.resolved = true
+            currentUsage = type
         }
         super.writeDefinition(text, definition, isLocal)
     }
@@ -417,6 +421,7 @@ class FullScanTextOutput : PlainTextOutput(Writer.nullWriter()) {
     class JavaType(val name: String): HasUsage() {
         val fields = hashMapOf<String, JavaMember>()
         val methods = hashMapOf<String, JavaMember>()
+        var resolved = false
         fun getMethod(name: String) = methods.computeIfAbsent(name) { JavaMember(this, name) }
         fun getField(name: String)  = fields.computeIfAbsent(name) { JavaMember(this, name) }
         override fun toString(): String {
@@ -429,3 +434,5 @@ class FullScanTextOutput : PlainTextOutput(Writer.nullWriter()) {
         }
     }
 }
+
+class FullScanTextOutput : UsageScanTextOutput()
