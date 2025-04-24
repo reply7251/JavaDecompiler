@@ -371,17 +371,17 @@ class FullScanTextOutput : PlainTextOutput(Writer.nullWriter()) {
     override fun writeDefinition(text: String, definition: Any?, isLocal: Boolean) {
         lastKeyword = ""
         (definition as? MethodReference)?.let {
-            val type = getType(it.declaringType.fullName.replace(".", "/"))
+            val type = getType(it.declaringType.internalName)
             val def = "${it.name} ${it.signature}"
             currentUsage = type.getMethod(def)
         }
         (definition as? FieldDefinition)?.let {
             val def = it.name
-            val type = getType(it.declaringType.fullName.replace(".", "/"))
+            val type = getType(it.declaringType.internalName)
             currentUsage = type.getField(def)
         }
         (definition as? TypeDefinition)?.let {
-            val def = it.fullName.replace(".", "/")
+            val def = it.internalName
             currentUsage = getType(def)
         }
         super.writeDefinition(text, definition, isLocal)
@@ -389,17 +389,17 @@ class FullScanTextOutput : PlainTextOutput(Writer.nullWriter()) {
 
     override fun writeReference(text: String?, reference: Any?) {
         (reference as? MethodReference)?.let {
-            val type = getType(it.declaringType.fullName.replace(".", "/"))
+            val type = getType(it.declaringType.internalName)
             val ref = "${it.name} ${it.signature}"
             currentUsage?.addUsage(type.getMethod(ref))
         }
         (reference as? FieldReference)?.let {
-            val type = getType(it.declaringType.fullName.replace(".", "/"))
+            val type = getType(it.declaringType.internalName)
             val ref = it.name
             currentUsage?.addUsage(type.getField(ref))
         }
         (reference as? TypeReference)?.let {
-            val type = getType(it.fullName.replace(".", "/"))
+            val type = getType(it.internalName)
             currentUsage?.addUsage(type)
         }
         super.writeReference(text, reference)
